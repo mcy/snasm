@@ -1,0 +1,7 @@
+[package]
+name = "snasm"
+version = "0.1.0"
+authors = ["mcyoung"]
+edition = "2018"
+
+[dependencies]
