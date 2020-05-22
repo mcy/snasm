@@ -9,9 +9,10 @@
 //! structs, but are covered in the [`AddrMode`](enum.AddrMode.html) enum.
 
 use crate::isa::Long;
+use crate::syn::SymOr;
 
 /// A 65815 addressing mode.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum AddrMode {
   /// Absolute addressing.
   Abs(Abs),
@@ -76,10 +77,10 @@ pub enum AddrMode {
 /// ```text
 /// xyz $1234
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Abs {
   /// The immediate operand.
-  pub imm: u16,
+  pub imm: SymOr<u16>,
 }
 
 /// Absolute `x`-indexed addressing.
@@ -93,10 +94,10 @@ pub struct Abs {
 /// ```text
 /// xyz $1245, x
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct AbsX {
   /// The immediate operand.
-  imm: u16,
+  imm: SymOr<u16>,
 }
 
 /// Absolute `y`-indexed addressing.
@@ -110,10 +111,10 @@ pub struct AbsX {
 /// ```text
 /// xyz $1234, y
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct AbsY {
   /// The immediate operand.
-  imm: u16,
+  imm: SymOr<u16>,
 }
 
 /// Absolute indirect addressing.
@@ -127,10 +128,10 @@ pub struct AbsY {
 /// ```text
 /// xyz ($1234)
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct AbsIndirect {
   /// The immediate operand.
-  imm: u16,
+  imm: SymOr<u16>,
 }
 
 /// Absolute, indexed, indirect addressing.
@@ -145,10 +146,10 @@ pub struct AbsIndirect {
 /// ```text
 /// xyz ($1234, x)
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct AbsIndirectX {
   /// The immediate operand.
-  imm: u16,
+  imm: SymOr<u16>,
 }
 
 /// Absolute, indirect, long addressing.
@@ -161,10 +162,10 @@ pub struct AbsIndirectX {
 /// ```text
 /// xyz [$123456]
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct AbsIndirectLong {
   /// The immediate operand.
-  imm: Long,
+  imm: SymOr<Long>,
 }
 
 /// Absolute long addressing.
@@ -177,10 +178,10 @@ pub struct AbsIndirectLong {
 /// ```text
 /// xyz $123456
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct AbsLong {
   /// The immediate operand.
-  imm: Long,
+  imm: SymOr<Long>,
 }
 
 /// Absolute long, `x`-indexed addressing.
@@ -193,10 +194,10 @@ pub struct AbsLong {
 /// ```text
 /// xyz $123456, x
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct AbsLongX {
   /// The immediate operand.
-  imm: Long,
+  imm: SymOr<Long>,
 }
 
 /// Accumulator addressing.
@@ -209,7 +210,7 @@ pub struct AbsLongX {
 /// ```text
 /// xyz a
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Acc;
 
 /// Block move addressing.
@@ -222,12 +223,12 @@ pub struct Acc;
 /// ```text
 /// xyz $12, $34
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct BlockMove {
   /// The bank byte for the source addresses.
-  src_bank: u8,
+  src_bank: SymOr<u8>,
   /// The bank byte the the destination addresses.
-  dest_bank: u8,
+  dest_bank: SymOr<u8>,
 }
 
 /// Direct page addressing.
@@ -241,10 +242,10 @@ pub struct BlockMove {
 /// ```text
 /// xyz $12
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Direct {
   /// The immediate operand.
-  imm: u8,
+  imm: SymOr<u8>,
 }
 
 /// Direct, `x`-indexed addressing.
@@ -258,10 +259,10 @@ pub struct Direct {
 /// ```text
 /// xyz $12, x
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct DirectX {
   /// The immediate operand.
-  imm: u8,
+  imm: SymOr<u8>,
 }
 
 /// Direct, `y`-indexed addressing.
@@ -275,10 +276,10 @@ pub struct DirectX {
 /// ```text
 /// xyz $12, y
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct DirectY {
   /// The immediate operand.
-  imm: u8,
+  imm: SymOr<u8>,
 }
 
 /// Direct page indicrect addressing.
@@ -293,10 +294,10 @@ pub struct DirectY {
 /// ```text
 /// xyz ($12)
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct DirectIndirect {
   /// The immediate operand.
-  imm: u8,
+  imm: SymOr<u8>,
 }
 
 /// Direct, `x`-indexed indirect addressing.
@@ -311,10 +312,10 @@ pub struct DirectIndirect {
 /// ```text
 /// xyz ($12, x)
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct DirectIndirectX {
   /// The immediate operand.
-  imm: u8,
+  imm: SymOr<u8>,
 }
 
 /// Direct `y`-indexed indirect addressing.
@@ -329,10 +330,10 @@ pub struct DirectIndirectX {
 /// ```text
 /// xyz ($12), y
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct DirectIndirectY {
   /// The immediate operand.
-  imm: u8,
+  imm: SymOr<u8>,
 }
 
 /// Direct indirect long addressing.
@@ -347,10 +348,10 @@ pub struct DirectIndirectY {
 /// ```text
 /// xyz [$12]
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct DirectIndirectLong {
   /// The immediate operand.
-  imm: u8,
+  imm: SymOr<u8>,
 }
 
 /// Direct `y`-indexed indirect long addressing.
@@ -365,10 +366,10 @@ pub struct DirectIndirectLong {
 /// ```text
 /// xyz [$12], y
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct DirectIndirectLongY {
   /// The immediate operand.
-  imm: u8,
+  imm: SymOr<u8>,
 }
 
 /// An 8-bit or 16-bit immediate value.
@@ -378,10 +379,12 @@ pub struct DirectIndirectLongY {
 /// xyz #$12
 /// xyz #$1234
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Imm {
-  U8(u8),
-  U16(u16),
+  /// An 8-bit immediate.
+  U8(SymOr<u8>),
+  /// A 16-bit immediate.
+  U16(SymOr<u16>),
 }
 
 /// `pc`-relative addressing.
@@ -397,10 +400,10 @@ pub enum Imm {
 /// ```text
 /// xyz local_label
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct PcRel {
   /// The immediate operand.
-  imm: i8,
+  imm: SymOr<i8>,
 }
 
 /// `pc`-relative long addressing.
@@ -416,10 +419,10 @@ pub struct PcRel {
 /// ```text
 /// xyz far_label
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct PcRelLong {
   /// The immediate operand.
-  imm: i16,
+  imm: SymOr<i16>,
 }
 
 /// `s`-relative addressing.
@@ -433,10 +436,10 @@ pub struct PcRelLong {
 /// ```text
 /// xyz $12, s
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct StackRel {
   /// The immediate operand.
-  imm: u8,
+  imm: SymOr<u8>,
 }
 
 /// `s`-relative, indirect `y`-indexed addressing.
@@ -451,8 +454,8 @@ pub struct StackRel {
 /// ```text
 /// xyz ($12, s), y
 /// ```
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct StackRelIndirectY {
   /// The immediate operand.
-  imm: u8,
+  imm: SymOr<u8>,
 }

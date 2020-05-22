@@ -1,0 +1,75 @@
+// Comments and whitespace.
+LineComment  = { ";" ~ (!NEWLINE ~ ANY)* ~ &(NEWLINE | EOI) }
+WHITESPACE   = _{ " " | "\t" | "\r" }
+
+Comma = _{ "," }
+Colon = _{ ":" }
+LParen = _{ "(" }
+RParen = _{ ")" }
+LBrack = _{ "[" }
+RBrack = _{ "]" }
+Hash = _{ "#" }
+
+Symbol = @{ (ASCII_ALPHA | "_" | ".") ~ (ASCII_ALPHA | "_" | "." | ASCII_DIGIT)* }
+
+DigitsDec = @{ (ASCII_DIGIT | "_")+ }
+DigitsBin = @{ (ASCII_BIN_DIGIT | "_")+ }
+DigitsHex = @{ (ASCII_HEX_DIGIT | "_")+ }
+IntType = @{ ("i" | "I") ~ ("8" | "16" | "24") }
+IntDec = ${ "-"? ~ DigitsDec ~ IntType? }
+IntBin = ${ "%" ~ DigitsBin ~ IntType? }
+IntHex = ${ "$" ~ DigitsHex ~ IntType? }
+Int = _{ IntDec | IntBin | IntHex }
+
+DString      = ${ "\"" ~ DStringInner ~ "\"" }
+DStringInner = @{ DStringChar* }
+DStringChar  = {
+    !("\"" | "\\") ~ ANY
+    | "\\" ~ ("\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t" | "x")
+}
+
+Operand = _{ LabelRef | Int | Symbol }
+
+NumericLabel = { ASCII_DIGIT }
+Label = { (Symbol | NumericLabel) ~ Colon }
+LabelRef = @{ NumericLabel ~ ("b" | "f") }
+
+DirectiveName = @{ "." ~ Symbol }
+Directive = { DirectiveName ~ (Operand ~ Comma)* ~ Operand?}
+
+Mnemonic = @{ ASCII_ALPHA{3} }
+
+IdxReg = { "x" | "y" | "s" | "X" | "Y" | "S" }
+AddrAcc = { "a" | "A" }
+AddrImm = { Hash ~ Operand }
+AddrAbs = { Operand }
+AddrIdx = { Operand ~ Comma ~ IdxReg }
+AddrInd = { LParen ~ Operand ~ RParen }
+AddrIdxInd = { LParen ~ Operand ~ Comma ~ IdxReg ~ RParen }
+AddrIndIdx = { LParen ~ Operand ~ RParen ~ Comma ~ IdxReg }
+AddrIdxIndIdx = { LParen ~ Operand ~ Comma ~ IdxReg ~ RParen ~ Comma ~ IdxReg }
+AddrLongInd = { LBrack ~ Operand ~ RBrack }
+AddrLongIndIdx = { LBrack ~ Operand ~ RBrack ~ Comma ~ IdxReg }
+
+Addr = _{
+    // NOTE: Longer rules need to go first.
+    AddrIdxIndIdx |
+    AddrIdxInd |
+    AddrIndIdx |
+    AddrLongIndIdx |
+    AddrLongInd |
+    AddrAcc | AddrImm | AddrAbs | AddrIdx | AddrInd
+}
+
+Instruction = { Mnemonic ~ Addr? }
+
+Line = {
+    Label* ~
+    Directive* ~
+    Instruction? ~
+    LineComment?
+}
+
+File = {
+    SOI ~ (Line ~ NEWLINE)* ~ Line? ~ EOI
+}

@@ -8,7 +8,7 @@ use crate::isa::Mnemonic;
 /// An instruction consists of a mnemonic plus an addressing mode, though
 /// note all variants are legal. `Instruction::build_from` can be used to
 /// construct legal combinations.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Instruction {
   mne: Mnemonic,
   mode: AddrMode,
@@ -16,13 +16,13 @@ pub struct Instruction {
 
 impl Instruction {
   /// Gets this instruction's mnemonic.
-  pub fn mnemonic(self) -> Mnemonic {
+  pub fn mnemonic(&self) -> Mnemonic {
     self.mne
   }
 
   /// Gets this instruction's addressing mode.
-  pub fn addressing_mode(self) -> AddrMode {
-    self.mode
+  pub fn addressing_mode(&self) -> &AddrMode {
+    &self.mode
   }
 }
 
@@ -56,7 +56,7 @@ macro_rules! instructions {
         use AddrMode::*;
         match (mne, mode) {
           $($($(
-            (Mnemonic::$mne, $addr_mode) => Some(Self { mne, mode }),
+            (Mnemonic::$mne, mode @ $addr_mode) => Some(Self { mne, mode }),
           )*)?)*
           $($(
             (Mnemonic::$mne, Inherent) => {
@@ -69,8 +69,30 @@ macro_rules! instructions {
         }
       }
 
+      /// Check whether a given mnemonic and address mode are a valid
+      /// combination.
+      pub fn is_valid_combination(
+        mne: Mnemonic,
+        mode: &AddrMode,
+      ) -> bool {
+        use AddrMode::*;
+        match (mne, mode) {
+          $($($(
+            (Mnemonic::$mne, $addr_mode) => true,
+          )*)?)*
+          $($(
+            (Mnemonic::$mne, Inherent) => {
+              // Force a macro repetition. repetition.
+              let _ = $inh_opcode;
+              true
+            }
+          )?)*
+          _ => false,
+        }
+      }
+
       /// Returns this instruction's opcode.
-      pub fn opcode(self) -> u8 {
+      pub fn opcode(&self) -> u8 {
         use AddrMode::*;
         match (self.mnemonic(), self.addressing_mode()) {
           $($($(

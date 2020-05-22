@@ -5,3 +5,7 @@ authors = ["mcyoung"]
 edition = "2018"
 
 [dependencies]
+regex = "1.3.7"
+lazy_static = "1.4.0"
+pest = "2.1.2"
+pest_derive = "2.1.0"

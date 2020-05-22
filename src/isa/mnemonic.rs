@@ -38,7 +38,7 @@ macro_rules! mnemonics {
       /// Matching is case-insensitive: `"ADC"`, `"adc"`, and `"AdC"` will all
       /// return `Mnemonic::Adc`.
       pub fn from_name(name: &str) -> Option<Self> {
-        $(if name.eq_ignore_ascii_case(stringify!($mne)) {
+        $(if name.eq_ignore_ascii_case($mne) {
           return Some(Mnemonic::$name)
         })*
 
