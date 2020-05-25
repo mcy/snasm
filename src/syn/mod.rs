@@ -7,7 +7,10 @@
 
 use crate::isa::Mnemonic;
 
+pub mod fmt;
 mod parse;
+
+pub use fmt::print;
 pub use parse::{parse, Error};
 
 /// A symbol, representing some location in a program.
@@ -90,11 +93,11 @@ pub enum Operand {
   /// table.
   Symbol(Symbol),
   /// A numeric label reference, like `1f` or `2b`.
-  LabelRef { 
+  LabelRef {
     /// The integer value of this reference, between `0` and `9`.
-    value: u8, 
+    value: u8,
     /// Whether this is a forward reference or a backward reference.
-    is_forward: bool
+    is_forward: bool,
   },
 }
 
@@ -102,12 +105,22 @@ pub enum Operand {
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Int {
   /// The value of this integer. If negative, it will be fully sign-extended,
-  /// though only the portion specified by `ty` should be used.
+  /// though only the portion specified by `ty` should be used. In particularm
+  /// 0xffffffff and 0x0000ffff represent the same two-byte integer, though
+  /// the former is viewed as coming from a "signed" literal.
   pub value: i32,
   /// The "style" of this integer, i.e, the base it was parsed in.
   pub style: DigitStyle,
   /// The type (i.e., width) of this integer.
   pub ty: IntType,
+}
+
+impl Int {
+  /// Returns whether this Int is "negative", by observing the sign bit of the
+  /// underlying `i32` value.
+  pub fn is_negative(self) -> bool {
+    self.value < 0
+  }
 }
 
 /// A digit style: decimal, hex, or binary.
@@ -219,6 +232,15 @@ impl IdxReg {
       "y" | "Y" => Some(Self::Y),
       "s" | "S" => Some(Self::S),
       _ => None,
+    }
+  }
+
+  /// Returns the name for this `IdxReg`.
+  pub fn name(self) -> &'static str {
+    match self {
+      Self::X => "x",
+      Self::Y => "y",
+      Self::S => "s",
     }
   }
 }

@@ -13,12 +13,12 @@ fn main() {
   ; foo
   adc $ffff
   adc -129
-  sbc (foo), s
+  sbc (foo), s ; bar2
   lda #%10101010i24  ; bar
 1:bcc 1f
   php
 "#;
 
   let file = crate::syn::parse("test.S", asm).unwrap();
-  println!("{:#?}", file);
+  syn::print(&syn::fmt::Options::default(), &file, &mut std::io::stdout()).unwrap();
 }
