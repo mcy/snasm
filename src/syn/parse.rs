@@ -3,6 +3,7 @@
 use std::mem;
 
 use pest::error::Error as PestError;
+use pest::error::LineColLocation;
 use pest::iterators::Pair;
 use pest_derive::Parser;
 
@@ -23,9 +24,9 @@ use crate::syn::Symbol;
 #[grammar = "syn/grammar.pest"]
 struct PegParser;
 
-/// A parsing error.
+/// A parsing error type.
 #[derive(Clone, Debug)]
-pub enum Error {
+pub enum ErrorType {
   /// An error originating from inside the PEG parser.
   Peg(PestError<Rule>),
   /// An error due to a bad integer.
@@ -36,9 +37,19 @@ pub enum Error {
   BadRegister,
 }
 
-impl From<PestError<Rule>> for Error {
+/// A parsing error.
+#[derive(Clone, Debug)]
+pub struct Error {
+  /// The type of the error.
+  pub inner: ErrorType,
+  /// The line at which the error occured.
+  pub line: usize,
+}
+
+
+impl From<PestError<Rule>> for ErrorType {
   fn from(e: PestError<Rule>) -> Self {
-    Error::Peg(e)
+    ErrorType::Peg(e)
   }
 }
 
@@ -50,7 +61,16 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
   };
 
   use pest::Parser;
-  let mut pair = PegParser::parse(Rule::File, src)?;
+  let mut pair = match PegParser::parse(Rule::File, src) {
+    Ok(pair) => pair,
+    Err(err) => {
+      let line = match err.line_col {
+        LineColLocation::Pos((l, _)) => l,
+        LineColLocation::Span((l, _), _) => l,
+      };
+      return Err(Error { inner: err.into(), line })
+    }
+  };
   for line in pair.next().unwrap().into_inner() {
     let atoms = line.into_inner().collect::<Vec<_>>();
     let mut prev = Atom {
@@ -61,6 +81,7 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
 
     let len = file.atoms.len();
     for atom in atoms {
+      let line = atom.as_span().start_pos().line_col().0;
       match atom.as_rule() {
         Rule::Label => {
           let name = atom.into_inner().next().unwrap().as_str().into();
@@ -102,7 +123,7 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
         Rule::Instruction => {
           let mut inner = atom.into_inner();
           let mne = Mnemonic::from_name(inner.next().unwrap().as_str())
-            .ok_or(Error::BadMnemonic)?;
+            .ok_or(Error { inner: ErrorType::BadMnemonic, line })?;
           let expr = inner
             .next()
             .map::<Result<AddrExpr, Error>, _>(|addr| {
@@ -124,37 +145,37 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
                   let mut inner = addr.into_inner();
                   let arg = parse_operand(inner.next().unwrap())?;
                   let idx = IdxReg::from_str(inner.next().unwrap().as_str())
-                    .ok_or(Error::BadRegister)?;
+                    .ok_or(Error { inner: ErrorType::BadRegister, line })?;
                   AddrExpr::Idx(arg, idx)
                 }
                 Rule::AddrIndIdx => {
                   let mut inner = addr.into_inner();
                   let arg = parse_operand(inner.next().unwrap())?;
                   let idx = IdxReg::from_str(inner.next().unwrap().as_str())
-                    .ok_or(Error::BadRegister)?;
+                    .ok_or(Error { inner: ErrorType::BadRegister, line })?;
                   AddrExpr::IndIdx(arg, idx)
                 }
                 Rule::AddrIdxInd => {
                   let mut inner = addr.into_inner();
                   let arg = parse_operand(inner.next().unwrap())?;
                   let idx = IdxReg::from_str(inner.next().unwrap().as_str())
-                    .ok_or(Error::BadRegister)?;
+                    .ok_or(Error { inner: ErrorType::BadRegister, line })?;
                   AddrExpr::IdxInd(arg, idx)
                 }
                 Rule::AddrIdxIndIdx => {
                   let mut inner = addr.into_inner();
                   let arg = parse_operand(inner.next().unwrap())?;
                   let idx = IdxReg::from_str(inner.next().unwrap().as_str())
-                    .ok_or(Error::BadRegister)?;
+                    .ok_or(Error { inner: ErrorType::BadRegister, line })?;
                   let idx2 = IdxReg::from_str(inner.next().unwrap().as_str())
-                    .ok_or(Error::BadRegister)?;
+                    .ok_or(Error { inner: ErrorType::BadRegister, line })?;
                   AddrExpr::IdxIndIdx(arg, idx, idx2)
                 }
                 Rule::AddrLongIndIdx => {
                   let mut inner = addr.into_inner();
                   let arg = parse_operand(inner.next().unwrap())?;
                   let idx = IdxReg::from_str(inner.next().unwrap().as_str())
-                    .ok_or(Error::BadRegister)?;
+                    .ok_or(Error { inner: ErrorType::BadRegister, line })?;
                   AddrExpr::LongIndIdx(arg, idx)
                 }
                 _ => unreachable!(),
@@ -200,6 +221,7 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
 }
 
 fn parse_operand(operand: Pair<Rule>) -> Result<Operand, Error> {
+  let line = operand.as_span().start_pos().line_col().0;
   match operand.as_rule() {
     Rule::IntDec => {
       let is_negative = operand.as_str().starts_with("-");
@@ -207,7 +229,7 @@ fn parse_operand(operand: Pair<Rule>) -> Result<Operand, Error> {
       let first = inner.next().unwrap();
 
       let mut value =
-        i32::from_str_radix(first.as_str(), 10).map_err(|_| Error::BadInt)?;
+        i32::from_str_radix(first.as_str(), 10).map_err(|_| Error { inner: ErrorType::BadInt, line })?;
       if is_negative {
         value = -value;
       }
@@ -216,7 +238,7 @@ fn parse_operand(operand: Pair<Rule>) -> Result<Operand, Error> {
         .next()
         .and_then(|s| IntType::from_str(s.as_str()))
         .or(IntType::smallest_for(value))
-        .ok_or(Error::BadInt)?;
+        .ok_or(Error { inner: ErrorType::BadInt, line })?;
       Ok(Operand::Int(Int {
         value,
         ty,
@@ -227,12 +249,12 @@ fn parse_operand(operand: Pair<Rule>) -> Result<Operand, Error> {
       let mut inner = operand.into_inner();
       let first = inner.next().unwrap().as_str();
 
-      let value = i32::from_str_radix(first, 2).map_err(|_| Error::BadInt)?;
+      let value = i32::from_str_radix(first, 2).map_err(|_| Error { inner: ErrorType::BadInt, line })?;
       let ty = inner
         .next()
         .and_then(|s| IntType::from_str(s.as_str()))
         .or(IntType::smallest_for(value))
-        .ok_or(Error::BadInt)?;
+        .ok_or(Error { inner: ErrorType::BadInt, line })?;
       Ok(Operand::Int(Int {
         value,
         ty,
@@ -243,12 +265,12 @@ fn parse_operand(operand: Pair<Rule>) -> Result<Operand, Error> {
       let mut inner = operand.into_inner();
       let first = inner.next().unwrap().as_str();
 
-      let value = i32::from_str_radix(first, 16).map_err(|_| Error::BadInt)?;
+      let value = i32::from_str_radix(first, 16).map_err(|_| Error { inner: ErrorType::BadInt, line })?;
       let ty = inner
         .next()
         .and_then(|s| IntType::from_str(s.as_str()))
         .or(IntType::smallest_for(value))
-        .ok_or(Error::BadInt)?;
+        .ok_or(Error { inner: ErrorType::BadInt, line })?;
       Ok(Operand::Int(Int {
         value,
         ty,
@@ -260,7 +282,7 @@ fn parse_operand(operand: Pair<Rule>) -> Result<Operand, Error> {
     })),
     Rule::LabelRef => {
       let (value_str, dir) = operand.as_str().split_at(1);
-      let value = value_str.parse().map_err(|_| Error::BadInt)?;
+      let value = value_str.parse().map_err(|_| Error { inner: ErrorType::BadInt, line })?;
       let is_forward = dir == "f";
       Ok(Operand::LabelRef { value, is_forward })
     }
