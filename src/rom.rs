@@ -121,7 +121,8 @@ impl<Byte: Clone> Rom<Byte> for LoRom<Byte> {
   }
 
   fn at(&mut self, addr: Long) -> Option<&mut Byte> {
-    Self::map(addr).map(move |a| &mut self.page_for_rom_addr(a)[(a & 0xff) as usize])
+    Self::map(addr)
+      .map(move |a| &mut self.page_for_rom_addr(a)[(a & 0xff) as usize])
   }
 }
 
@@ -133,16 +134,10 @@ mod test {
 
   macro_rules! assert_mapping {
     ($ty:ident, $val:literal => None) => {
-      assert_eq!(
-        $ty::<u8>::map(Long::from_u32($val)),
-        None
-      );
+      assert_eq!($ty::<u8>::map(Long::from_u32($val)), None);
     };
     ($ty:ident, $val:literal => $expected:literal) => {
-      assert_eq!(
-        $ty::<u8>::map(Long::from_u32($val)),
-        Some($expected)
-      );
+      assert_eq!($ty::<u8>::map(Long::from_u32($val)), Some($expected));
     };
   }
 

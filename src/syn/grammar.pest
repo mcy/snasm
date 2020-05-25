@@ -30,9 +30,9 @@ DStringChar  = {
 
 Operand = _{ LabelRef | Int | Symbol }
 
-NumericLabel = { ASCII_DIGIT }
-Label = { (Symbol | NumericLabel) ~ Colon }
-LabelRef = @{ NumericLabel ~ ("b" | "f") }
+DigitLabel = { ASCII_DIGIT ~ Colon }
+Label = { Symbol ~ Colon }
+LabelRef = @{ ASCII_DIGIT ~ ("b" | "f") }
 
 DirectiveName = @{ "." ~ Symbol }
 Directive = { DirectiveName ~ (Operand ~ Comma)* ~ Operand?}
@@ -65,6 +65,7 @@ Instruction = { Mnemonic ~ Addr? }
 
 Line = {
     Label* ~
+    DigitLabel* ~
     Directive* ~
     Instruction? ~
     LineComment?

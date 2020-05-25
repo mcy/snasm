@@ -25,6 +25,9 @@ pub struct Long {
 impl Long {
   /// Create a `Long` value out of a `u32`.
   pub fn from_u32(i: u32) -> Self {
-    Self { bank: (i >> 16) as u8, addr: i as u16 }
+    Self {
+      bank: (i >> 16) as u8,
+      addr: i as u16,
+    }
   }
 }

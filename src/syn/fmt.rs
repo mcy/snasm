@@ -72,14 +72,21 @@ pub fn print(
 
   for atom in &f.atoms {
     match &atom.inner {
-      AtomType::Label { name } => {
+      AtomType::Label(sym) => {
         if w.count() > 0 {
-          write!(w, " {}:", name.name)?
+          write!(w, " {}:", sym.name)?
         } else {
-          write!(w, "{}:", name.name)?
+          write!(w, "{}:", sym.name)?
         }
       }
-      AtomType::Directive { name, args } => {
+      AtomType::DigitLabel(val) => {
+        if w.count() > 0 {
+          write!(w, " {}:", val)?
+        } else {
+          write!(w, "{}:", val)?
+        }
+      }
+      AtomType::Directive(name, args) => {
         if w.count() > 0 {
           write!(w, " {}", name.name)?;
         } else {
@@ -93,7 +100,7 @@ pub fn print(
           }
         }
       }
-      AtomType::Instruction { mne, expr } => {
+      AtomType::Instruction(mne, expr) => {
         if w.count() > 0 {
           write!(w, " {}", mne.name())?;
         } else {

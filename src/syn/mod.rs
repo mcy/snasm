@@ -3,6 +3,9 @@
 //! This module provides a parser for a faithful AST representation of
 //! SNASM's variant of 65816 syntax.
 //!
+//! Throughout this module, the `'asm` lifetime referrs to the lifetime of the
+//! file's text.
+//!
 //! # Syntax
 //! SNASM's syntax is, at the top level, described in terms of *atoms*. An atom
 //! is a single command for the assembler, be it a label, a directive, or a
@@ -81,31 +84,51 @@ pub mod fmt;
 mod parse;
 
 pub use fmt::print;
-pub use parse::{parse, Error};
+pub use parse::{parse, Error, Position, Span};
 
 /// A symbol, representing some location in a program.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub struct Symbol {
+pub struct Symbol<'asm> {
   /// The name of this symbol.
-  pub name: String,
+  pub name: &'asm str,
 }
 
 /// A line comment in a file.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub struct Comment {
+pub struct Comment<'asm> {
   /// The text of the comment, including the comment character.
   ///
   /// E.g., `"; This is a function."`.
-  pub text: String,
+  pub text: &'asm str,
 }
 
 /// An assembly file.
 ///
 /// An assembly file consists of several
 #[derive(Clone, Debug)]
-pub struct File {
-  name: String,
-  atoms: Vec<Atom>,
+pub struct File<'asm> {
+  name: Option<&'asm str>,
+  atoms: Vec<Atom<'asm>>,
+}
+
+/// A span with a file name attached to it.
+#[derive(Clone)]
+pub struct FileSpan<'asm> {
+  /// The name of the file.
+  pub name: Option<&'asm str>,
+  /// A span within the file.
+  pub span: Span<'asm>,
+}
+
+impl std::fmt::Debug for FileSpan<'_> {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    match &self.name {
+      Some(name) => {
+        write!(f, "{:?}[{}, {}]", name, self.span.start(), self.span.end())
+      }
+      None => write!(f, "<?>[{}, {}]", self.span.start(), self.span.end()),
+    }
+  }
 }
 
 /// A syntactic atom.
@@ -113,42 +136,31 @@ pub struct File {
 /// An atom describes a "complete" assembler command, such as a label, a
 /// directive such as `.origin`, or an actual instruction.
 #[derive(Clone, Debug)]
-pub struct Atom {
+pub struct Atom<'asm> {
   /// The actual semantic content of the atom.
-  inner: AtomType,
+  inner: AtomType<'asm>,
   /// This atom's end-of-line comment, if it had one.
-  comment: Option<Comment>,
+  comment: Option<Comment<'asm>>,
   /// Whether this atom was the last one on a line.
   has_newline: bool,
-  /// The line this atom was parsed from, if any.
-  source_line: Option<usize>,
+  /// The span this atom was parsed from, if any.
+  span: Option<FileSpan<'asm>>,
 }
 
 /// Various types of `Atom`s.
 #[derive(Clone, Debug)]
-pub enum AtomType {
+pub enum AtomType<'asm> {
   /// A label definition: `foo:`.
-  Label {
-    /// The symbol introduced by the label.
-    name: Symbol,
-  },
+  Label(Symbol<'asm>),
+
+  /// A local digit label definition: `1:`.
+  DigitLabel(u8),
 
   /// A directive: `.origin $100`.
-  Directive {
-    /// The name of the directive, including the leading period.
-    name: Symbol,
-    /// The arguments for the directive.
-    args: Vec<Operand>,
-  },
+  Directive(Symbol<'asm>, Vec<Operand<'asm>>),
 
   /// An instruction: `adc $ff, x`.
-  Instruction {
-    /// The instruction's mnemonic.
-    mne: Mnemonic,
-    /// An optional "address expression", describing a potential addressing
-    /// mode.
-    expr: Option<AddrExpr>,
-  },
+  Instruction(Mnemonic, Option<AddrExpr<'asm>>),
 
   /// An empty atom, representing an empty line.
   Empty,
@@ -156,14 +168,14 @@ pub enum AtomType {
 
 /// An operand, which can be used with a directive or an instruction.
 #[derive(Clone, Debug)]
-pub enum Operand {
+pub enum Operand<'asm> {
   /// A literal integer operand.
   Int(Int),
   /// A string operand.
-  String(String),
+  String(&'asm str),
   /// A symbol operand, which needs to be resolved against the symbol
   /// table.
-  Symbol(Symbol),
+  Symbol(Symbol<'asm>),
   /// A numeric label reference, like `1f` or `2b`.
   LabelRef {
     /// The integer value of this reference, between `0` and `9`.
@@ -262,27 +274,27 @@ impl IntType {
 /// A "address expression", encompassing all of the syntactic variations
 /// shared by the 65816 addressing modes.
 #[derive(Clone, Debug)]
-pub enum AddrExpr {
+pub enum AddrExpr<'asm> {
   /// Accumulator addressing: `xyz a`.
   Acc,
   /// Immediate addressing: `xyz #$ff`.
-  Imm(Operand),
+  Imm(Operand<'asm>),
   /// Absolute addressing: `xyz $ff`.
-  Abs(Operand),
+  Abs(Operand<'asm>),
   /// Indexed addressing: `xyz $ff, x`.
-  Idx(Operand, IdxReg),
+  Idx(Operand<'asm>, IdxReg),
   /// Indirect addressing: `xyz ($ff)`.
-  Ind(Operand),
+  Ind(Operand<'asm>),
   /// Indxed indirect addressing: `xyz ($ff, x)`
-  IdxInd(Operand, IdxReg),
+  IdxInd(Operand<'asm>, IdxReg),
   /// Indirect indexed addressing: `xyz ($ff), y`.
-  IndIdx(Operand, IdxReg),
+  IndIdx(Operand<'asm>, IdxReg),
   /// Indexed indirect indexed addressing: `xyz ($ff, s), y`
-  IdxIndIdx(Operand, IdxReg, IdxReg),
+  IdxIndIdx(Operand<'asm>, IdxReg, IdxReg),
   /// Long indirect addressing: `xyz [$ff]`.
-  LongInd(Operand),
+  LongInd(Operand<'asm>),
   /// Long indirect indexed addressing: `xyz [$ff], y`.
-  LongIndIdx(Operand, IdxReg),
+  LongIndIdx(Operand<'asm>, IdxReg),
 }
 
 /// A register that can be used in "index position".

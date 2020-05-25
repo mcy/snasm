@@ -3,9 +3,12 @@
 use std::mem;
 
 use pest::error::Error as PestError;
-use pest::error::LineColLocation;
+use pest::error::InputLocation;
 use pest::iterators::Pair;
 use pest_derive::Parser;
+
+pub use pest::Position;
+pub use pest::Span;
 
 use crate::isa::Mnemonic;
 use crate::syn::AddrExpr;
@@ -14,6 +17,7 @@ use crate::syn::AtomType;
 use crate::syn::Comment;
 use crate::syn::DigitStyle;
 use crate::syn::File;
+use crate::syn::FileSpan;
 use crate::syn::IdxReg;
 use crate::syn::Int;
 use crate::syn::IntType;
@@ -39,13 +43,12 @@ pub enum ErrorType {
 
 /// A parsing error.
 #[derive(Clone, Debug)]
-pub struct Error {
+pub struct Error<'asm> {
   /// The type of the error.
   pub inner: ErrorType,
   /// The line at which the error occured.
-  pub line: usize,
+  pub pos: Position<'asm>,
 }
-
 
 impl From<PestError<Rule>> for ErrorType {
   fn from(e: PestError<Rule>) -> Self {
@@ -54,7 +57,10 @@ impl From<PestError<Rule>> for ErrorType {
 }
 
 /// Parse `src` into a SNASM file.
-pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
+pub fn parse<'asm>(
+  file_name: Option<&'asm str>,
+  src: &'asm str,
+) -> Result<File<'asm>, Error<'asm>> {
   let mut file = File {
     name: file_name.into(),
     atoms: Vec::new(),
@@ -64,11 +70,15 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
   let mut pair = match PegParser::parse(Rule::File, src) {
     Ok(pair) => pair,
     Err(err) => {
-      let line = match err.line_col {
-        LineColLocation::Pos((l, _)) => l,
-        LineColLocation::Span((l, _), _) => l,
+      let pos = match err.location {
+        InputLocation::Pos(pos) => pos,
+        InputLocation::Span((pos, _)) => pos,
       };
-      return Err(Error { inner: err.into(), line })
+      let pos = Position::new(src, pos).unwrap();
+      return Err(Error {
+        inner: err.into(),
+        pos,
+      });
     }
   };
   for line in pair.next().unwrap().into_inner() {
@@ -77,32 +87,50 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
       inner: AtomType::Empty,
       comment: None,
       has_newline: false,
-      source_line: None,
+      span: None,
     };
 
     let len = file.atoms.len();
     for atom in atoms {
-      let line = atom.as_span().start_pos().line_col().0;
+      let span = Some(FileSpan {
+        name: file_name,
+        span: atom.as_span(),
+      });
+      let pos = atom.as_span().start_pos();
       match atom.as_rule() {
         Rule::Label => {
-          let name = atom.into_inner().next().unwrap().as_str().into();
+          let name = atom.into_inner().next().unwrap().as_str();
 
           let prev = mem::replace(
             &mut prev,
             Atom {
-              inner: AtomType::Label {
-                name: Symbol { name },
-              },
+              inner: AtomType::Label(Symbol { name }),
               comment: None,
               has_newline: false,
-              source_line: Some(line),
+              span,
+            },
+          );
+          file.atoms.push(prev);
+        }
+        Rule::DigitLabel => {
+          let val = atom.into_inner().next().unwrap().as_str()[..1]
+            .parse()
+            .unwrap();
+
+          let prev = mem::replace(
+            &mut prev,
+            Atom {
+              inner: AtomType::DigitLabel(val),
+              comment: None,
+              has_newline: false,
+              span,
             },
           );
           file.atoms.push(prev);
         }
         Rule::Directive => {
           let mut inner = atom.into_inner();
-          let name = inner.next().unwrap().as_str().into();
+          let name = inner.next().unwrap().as_str();
           let mut args = Vec::new();
           for arg in inner {
             if arg.as_rule() == Rule::Operand {
@@ -112,24 +140,25 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
           let prev = mem::replace(
             &mut prev,
             Atom {
-              inner: AtomType::Directive {
-                name: Symbol { name },
-                args,
-              },
+              inner: AtomType::Directive(Symbol { name }, args),
               comment: None,
               has_newline: false,
-              source_line: Some(line),
+              span,
             },
           );
           file.atoms.push(prev);
         }
         Rule::Instruction => {
           let mut inner = atom.into_inner();
-          let mne = Mnemonic::from_name(inner.next().unwrap().as_str())
-            .ok_or(Error { inner: ErrorType::BadMnemonic, line })?;
+          let mne = Mnemonic::from_name(inner.next().unwrap().as_str()).ok_or(
+            Error {
+              inner: ErrorType::BadMnemonic,
+              pos,
+            },
+          )?;
           let expr = inner
             .next()
-            .map::<Result<AddrExpr, Error>, _>(|addr| {
+            .map::<Result<AddrExpr<'asm>, Error<'asm>>, _>(|addr| {
               Ok(match addr.as_rule() {
                 Rule::AddrAcc => AddrExpr::Acc,
                 Rule::AddrImm => AddrExpr::Imm(parse_operand(
@@ -147,38 +176,38 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
                 Rule::AddrIdx => {
                   let mut inner = addr.into_inner();
                   let arg = parse_operand(inner.next().unwrap())?;
-                  let idx = IdxReg::from_str(inner.next().unwrap().as_str())
-                    .ok_or(Error { inner: ErrorType::BadRegister, line })?;
+                  let idx =
+                    IdxReg::from_str(inner.next().unwrap().as_str()).unwrap();
                   AddrExpr::Idx(arg, idx)
                 }
                 Rule::AddrIndIdx => {
                   let mut inner = addr.into_inner();
                   let arg = parse_operand(inner.next().unwrap())?;
-                  let idx = IdxReg::from_str(inner.next().unwrap().as_str())
-                    .ok_or(Error { inner: ErrorType::BadRegister, line })?;
+                  let idx =
+                    IdxReg::from_str(inner.next().unwrap().as_str()).unwrap();
                   AddrExpr::IndIdx(arg, idx)
                 }
                 Rule::AddrIdxInd => {
                   let mut inner = addr.into_inner();
                   let arg = parse_operand(inner.next().unwrap())?;
-                  let idx = IdxReg::from_str(inner.next().unwrap().as_str())
-                    .ok_or(Error { inner: ErrorType::BadRegister, line })?;
+                  let idx =
+                    IdxReg::from_str(inner.next().unwrap().as_str()).unwrap();
                   AddrExpr::IdxInd(arg, idx)
                 }
                 Rule::AddrIdxIndIdx => {
                   let mut inner = addr.into_inner();
                   let arg = parse_operand(inner.next().unwrap())?;
-                  let idx = IdxReg::from_str(inner.next().unwrap().as_str())
-                    .ok_or(Error { inner: ErrorType::BadRegister, line })?;
-                  let idx2 = IdxReg::from_str(inner.next().unwrap().as_str())
-                    .ok_or(Error { inner: ErrorType::BadRegister, line })?;
+                  let idx =
+                    IdxReg::from_str(inner.next().unwrap().as_str()).unwrap();
+                  let idx2 =
+                    IdxReg::from_str(inner.next().unwrap().as_str()).unwrap();
                   AddrExpr::IdxIndIdx(arg, idx, idx2)
                 }
                 Rule::AddrLongIndIdx => {
                   let mut inner = addr.into_inner();
                   let arg = parse_operand(inner.next().unwrap())?;
-                  let idx = IdxReg::from_str(inner.next().unwrap().as_str())
-                    .ok_or(Error { inner: ErrorType::BadRegister, line })?;
+                  let idx =
+                    IdxReg::from_str(inner.next().unwrap().as_str()).unwrap();
                   AddrExpr::LongIndIdx(arg, idx)
                 }
                 _ => unreachable!(),
@@ -189,17 +218,17 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
           let prev = mem::replace(
             &mut prev,
             Atom {
-              inner: AtomType::Instruction { mne, expr },
+              inner: AtomType::Instruction(mne, expr),
               comment: None,
               has_newline: false,
-              source_line: Some(line),
+              span,
             },
           );
           file.atoms.push(prev);
         }
         Rule::LineComment => {
           prev.comment = Some(Comment {
-            text: atom.as_str().into(),
+            text: atom.as_str(),
           })
         }
         _ => unreachable!(),
@@ -215,7 +244,7 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
         inner: AtomType::Empty,
         comment: None,
         has_newline: false,
-        source_line: _,
+        ..
       })
     ) {
       file.atoms.remove(len);
@@ -225,8 +254,10 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
   Ok(file)
 }
 
-fn parse_operand(operand: Pair<Rule>) -> Result<Operand, Error> {
-  let line = operand.as_span().start_pos().line_col().0;
+fn parse_operand<'asm>(
+  operand: Pair<'asm, Rule>,
+) -> Result<Operand<'asm>, Error<'asm>> {
+  let pos = operand.as_span().start_pos();
   match operand.as_rule() {
     Rule::IntDec => {
       let is_negative = operand.as_str().starts_with("-");
@@ -234,7 +265,10 @@ fn parse_operand(operand: Pair<Rule>) -> Result<Operand, Error> {
       let first = inner.next().unwrap();
 
       let mut value =
-        i32::from_str_radix(first.as_str(), 10).map_err(|_| Error { inner: ErrorType::BadInt, line })?;
+        i32::from_str_radix(first.as_str(), 10).map_err(|_| Error {
+          inner: ErrorType::BadInt,
+          pos: pos.clone(),
+        })?;
       if is_negative {
         value = -value;
       }
@@ -243,7 +277,10 @@ fn parse_operand(operand: Pair<Rule>) -> Result<Operand, Error> {
         .next()
         .and_then(|s| IntType::from_str(s.as_str()))
         .or(IntType::smallest_for(value))
-        .ok_or(Error { inner: ErrorType::BadInt, line })?;
+        .ok_or_else(|| Error {
+          inner: ErrorType::BadInt,
+          pos,
+        })?;
       Ok(Operand::Int(Int {
         value,
         ty,
@@ -254,12 +291,18 @@ fn parse_operand(operand: Pair<Rule>) -> Result<Operand, Error> {
       let mut inner = operand.into_inner();
       let first = inner.next().unwrap().as_str();
 
-      let value = i32::from_str_radix(first, 2).map_err(|_| Error { inner: ErrorType::BadInt, line })?;
+      let value = i32::from_str_radix(first, 2).map_err(|_| Error {
+        inner: ErrorType::BadInt,
+        pos: pos.clone(),
+      })?;
       let ty = inner
         .next()
         .and_then(|s| IntType::from_str(s.as_str()))
         .or(IntType::smallest_for(value))
-        .ok_or(Error { inner: ErrorType::BadInt, line })?;
+        .ok_or_else(|| Error {
+          inner: ErrorType::BadInt,
+          pos,
+        })?;
       Ok(Operand::Int(Int {
         value,
         ty,
@@ -270,12 +313,18 @@ fn parse_operand(operand: Pair<Rule>) -> Result<Operand, Error> {
       let mut inner = operand.into_inner();
       let first = inner.next().unwrap().as_str();
 
-      let value = i32::from_str_radix(first, 16).map_err(|_| Error { inner: ErrorType::BadInt, line })?;
+      let value = i32::from_str_radix(first, 16).map_err(|_| Error {
+        inner: ErrorType::BadInt,
+        pos: pos.clone(),
+      })?;
       let ty = inner
         .next()
         .and_then(|s| IntType::from_str(s.as_str()))
         .or(IntType::smallest_for(value))
-        .ok_or(Error { inner: ErrorType::BadInt, line })?;
+        .ok_or_else(|| Error {
+          inner: ErrorType::BadInt,
+          pos,
+        })?;
       Ok(Operand::Int(Int {
         value,
         ty,
@@ -283,11 +332,14 @@ fn parse_operand(operand: Pair<Rule>) -> Result<Operand, Error> {
       }))
     }
     Rule::Symbol => Ok(Operand::Symbol(Symbol {
-      name: operand.as_str().into(),
+      name: operand.as_str(),
     })),
     Rule::LabelRef => {
       let (value_str, dir) = operand.as_str().split_at(1);
-      let value = value_str.parse().map_err(|_| Error { inner: ErrorType::BadInt, line })?;
+      let value = value_str.parse().map_err(|_| Error {
+        inner: ErrorType::BadInt,
+        pos,
+      })?;
       let is_forward = dir == "f";
       Ok(Operand::LabelRef { value, is_forward })
     }
