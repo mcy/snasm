@@ -12,9 +12,9 @@ Hash = _{ "#" }
 
 Symbol = @{ (ASCII_ALPHA | "_" | ".") ~ (ASCII_ALPHA | "_" | "." | ASCII_DIGIT)* }
 
-DigitsDec = @{ (ASCII_DIGIT | "_")+ }
-DigitsBin = @{ (ASCII_BIN_DIGIT | "_")+ }
-DigitsHex = @{ (ASCII_HEX_DIGIT | "_")+ }
+DigitsDec = @{ ASCII_DIGIT ~ (ASCII_DIGIT | "_")* }
+DigitsBin = @{ ASCII_BIN_DIGIT ~ (ASCII_BIN_DIGIT | "_")* }
+DigitsHex = @{ ASCII_HEX_DIGIT ~ (ASCII_HEX_DIGIT | "_")* }
 IntType = @{ ("i" | "I") ~ ("8" | "16" | "24") }
 IntDec = ${ "-"? ~ DigitsDec ~ IntType? }
 IntBin = ${ "%" ~ DigitsBin ~ IntType? }

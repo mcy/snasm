@@ -1,9 +1,79 @@
-//! 65816 assembly syntax.
+//! SNASM's 65816 assembly syntax.
 //!
 //! This module provides a parser for a faithful AST representation of
 //! SNASM's variant of 65816 syntax.
 //!
-//! TODO(mcyoung): describe the syntax.
+//! # Syntax
+//! SNASM's syntax is, at the top level, described in terms of *atoms*. An atom
+//! is a single command for the assembler, be it a label, a directive, or a
+//! 65816 instruction. (The parser also parses empty lines as atoms.)
+//!
+//! Comments begin with a semicolon (`;`) and end with a newline.
+//! The parser will preserve comments.
+//!
+//! ## Operands
+//!
+//! SNASM symbols can be any combination of letters, digits, periods, and 
+//! underscores, though they cannot begin with a digit. `.l1234`,
+//! `physics.get_pos`, and `my_cool_fn123` are all valid symbols.
+//!
+//! SNASM integers may be decimal, binary, or hexadecimal: `123`, `%1010`, or
+//! `$99beef`. They may also be interspersed with underscores in any position,
+//! other than the first character. Decimal literals may also be negative:
+//! `-55`. This is a shorthand for the two's complement of that decimal integer.
+//!
+//! The type of an integer is the smallest of `i8`, `i16`, and `i24` that can
+//! faithfully represent it. Negative integers have a smaller range, since the
+//! sign bit needs to be stored somewhere. The type can be specified with a
+//! prefix: for example, `$ffu16` is the 16-bit integer `0x00ff`. All integers
+//! are two's complement, little-endian.
+//!
+//! Additionally, forward and backwards numeric label references, like `1f` and
+//! `2b`, are valid operands.
+//!
+//! Eventually, SNASM will support ASCII string literals.
+//! 
+//! ## Labels
+//! A label is a named position in a program. A label can either be for the form
+//! `<symbol>:` or `<digit>:`. For the former, this introduces a symbol with the
+//! name `<symbol>`, while the latter may be referred to with `<digit>b` or
+//! `<digit>f`. For example, `1f` represents the *next* label `1:` occuring in
+//! the program, while `1b` the *previous*.
+//!
+//! ## Directives
+//! A directive begins with a symbol starting with a period, like `.origin`,
+//! followed by a number of comma-separated operands.
+//! Directives affect assembler state in some way: `.origin <pc>` sets the
+//! program counter, while `.zero <n>` inserts `n` zeroes into the program.
+//!
+//! TODO(mcyoung): Document all directives.
+//!
+//! ## Instructions
+//! Instructions are literal 65816 instructions. An instruction is a
+//! case-insensitive, three character mnemonic, like `adc` or `tax`, followed
+//! by one of the following generic addressing modes:
+//! - Accumulator: `a`.
+//! - Immediate: `#<operand>`.
+//! - Absolute: `<operand>`.
+//! - Indirect: `(<operand>)`.
+//! - Indexed absolute: `<operand>, <reg>`.
+//! - Pre-indexed indirect: `(<operand>, <reg>)`.
+//! - Post-indexed indirect: `(<operand>), <reg>`.
+//! - Bi-indexed indirect: `(<operand>, <reg>), <reg>`.
+//! - Long indirect: `[<operand>]`.
+//! - Long post-indexed indirect: `[<operand>], <reg>`.
+//!
+//! `<operand>` is any operand expression, while `<reg>` is any of the `x`, `y`,
+//! or `s` registers. For example: 
+//! ```text
+//! adc $1235, x
+//! lda #$100u16
+//! asl a
+//! jml [$f0_f0_f0]
+//! ```
+//!
+//! The parser is not aware of what the valid combinations of mnemonics,
+//! addressing modes, index registers, and operand types are.
 
 use crate::isa::Mnemonic;
 
