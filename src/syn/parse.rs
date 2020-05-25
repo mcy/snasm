@@ -77,6 +77,7 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
       inner: AtomType::Empty,
       comment: None,
       has_newline: false,
+      source_line: None,
     };
 
     let len = file.atoms.len();
@@ -94,6 +95,7 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
               },
               comment: None,
               has_newline: false,
+              source_line: Some(line),
             },
           );
           file.atoms.push(prev);
@@ -116,6 +118,7 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
               },
               comment: None,
               has_newline: false,
+              source_line: Some(line),
             },
           );
           file.atoms.push(prev);
@@ -189,6 +192,7 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
               inner: AtomType::Instruction { mne, expr },
               comment: None,
               has_newline: false,
+              source_line: Some(line),
             },
           );
           file.atoms.push(prev);
@@ -211,6 +215,7 @@ pub fn parse(file_name: &str, src: &str) -> Result<File, Error> {
         inner: AtomType::Empty,
         comment: None,
         has_newline: false,
+        source_line: _,
       })
     ) {
       file.atoms.remove(len);

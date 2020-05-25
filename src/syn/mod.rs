@@ -118,8 +118,10 @@ pub struct Atom {
   inner: AtomType,
   /// This atom's end-of-line comment, if it had one.
   comment: Option<Comment>,
-  /// Wether this
+  /// Whether this atom was the last one on a line.
   has_newline: bool,
+  /// The line this atom was parsed from, if any.
+  source_line: Option<usize>,
 }
 
 /// Various types of `Atom`s.
