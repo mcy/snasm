@@ -8,6 +8,8 @@
 //! [good video](https://www.youtube.com/watch?v=-U76YvWdnZM) explaining the
 //! visual layouts of each mapping mode.
 
+use std::collections::HashMap;
+
 use crate::isa::Long;
 
 /// Mappings for a SNES ROM.
@@ -23,10 +25,7 @@ pub trait Rom<Byte> {
   fn len(&self) -> usize;
 
   /// Gets the byte at the SNES address `addr`, if it's been mapped in.
-  fn at(&self, addr: Long) -> Option<&Byte>;
-
-  /// Mutable variant of `at()`.
-  fn at_mut(&mut self, addr: Long) -> Option<&mut Byte>;
+  fn at(&mut self, addr: Long) -> Option<&mut Byte>;
 }
 
 /// A LoROM-mapped ROM.
@@ -40,7 +39,14 @@ pub trait Rom<Byte> {
 ///
 /// This `Rom` implementation pretends that WRAM and SRAM do not exist.
 pub struct LoRom<Byte> {
-  bytes: Vec<Byte>,
+  /// Lazily-allocates banks of 256 "bytes" each. This helps keep memory usage
+  /// down, since a `Byte` might be bigger than a machine byte, and it's
+  /// unlikely we need to map them all in at once.
+  ///
+  /// The first parameter is the first 24-bit address of each page: `0x222200`
+  /// is the `0x22`th page of the bank `0x22`.
+  lazy_pages: HashMap<u32, Vec<Byte>>,
+  default: Byte,
 }
 
 impl<Byte> LoRom<Byte> {
@@ -82,31 +88,40 @@ impl<Byte: Clone> LoRom<Byte> {
   /// Creates a new `LoRom` with the given value of `Byte` in each slot.
   pub fn filled_with(byte: Byte) -> Self {
     Self {
-      bytes: vec![byte; Self::LEN],
+      lazy_pages: HashMap::new(),
+      default: byte,
     }
+  }
+
+  /// Gets the page containing the given ROM address, triggering an allocation
+  /// if necessary.
+  fn page_for_rom_addr(&mut self, addr: u32) -> &mut [Byte] {
+    let addr = addr & 0xffff00;
+    let default = &self.default;
+    self.lazy_pages.entry(addr).or_insert_with(|| {
+      let mut vec = Vec::with_capacity(0x100);
+      for _ in 0..0x100 {
+        vec.push(default.clone());
+      }
+      vec
+    })
   }
 }
 
 impl<Byte: Clone + Default> LoRom<Byte> {
   /// Creates a new `LoRom` with the default value of `Byte` in each slot.
   pub fn new() -> Self {
-    Self {
-      bytes: vec![Byte::default(); Self::LEN],
-    }
+    Self::filled_with(Byte::default())
   }
 }
 
-impl<Byte> Rom<Byte> for LoRom<Byte> {
+impl<Byte: Clone> Rom<Byte> for LoRom<Byte> {
   fn len(&self) -> usize {
     Self::LEN
   }
 
-  fn at(&self, addr: Long) -> Option<&Byte> {
-    Self::map(addr).map(|a| &self.bytes[a as usize])
-  }
-
-  fn at_mut(&mut self, addr: Long) -> Option<&mut Byte> {
-    Self::map(addr).map(move |a| &mut self.bytes[a as usize])
+  fn at(&mut self, addr: Long) -> Option<&mut Byte> {
+    Self::map(addr).map(move |a| &mut self.page_for_rom_addr(a)[(a & 0xff) as usize])
   }
 }
 
