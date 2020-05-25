@@ -6,6 +6,7 @@
 #![deny(unsafe_code)]
 
 pub mod isa;
+pub mod rom;
 pub mod syn;
 
 fn main() {
@@ -20,5 +21,6 @@ fn main() {
 "#;
 
   let file = crate::syn::parse("test.S", asm).unwrap();
-  syn::print(&syn::fmt::Options::default(), &file, &mut std::io::stdout()).unwrap();
+  syn::print(&syn::fmt::Options::default(), &file, &mut std::io::stdout())
+    .unwrap();
 }

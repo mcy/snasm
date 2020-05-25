@@ -17,7 +17,13 @@ pub use mnemonic::Mnemonic;
 pub struct Long {
   /// The "bank byte", that is, the top byte of the address determining which
   /// bank it corresponds to.
-  bank: u8,
+  pub bank: u8,
   /// A 16-bit address within a bank.
-  addr: u16,
+  pub addr: u16,
+}
+
+impl Long {
+  pub fn from_u32(i: u32) -> Self {
+    Self { bank: (i >> 16) as u8, addr: i as u16 }
+  }
 }

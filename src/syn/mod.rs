@@ -13,7 +13,7 @@
 //!
 //! ## Operands
 //!
-//! SNASM symbols can be any combination of letters, digits, periods, and 
+//! SNASM symbols can be any combination of letters, digits, periods, and
 //! underscores, though they cannot begin with a digit. `.l1234`,
 //! `physics.get_pos`, and `my_cool_fn123` are all valid symbols.
 //!
@@ -32,7 +32,7 @@
 //! `2b`, are valid operands.
 //!
 //! Eventually, SNASM will support ASCII string literals.
-//! 
+//!
 //! ## Labels
 //! A label is a named position in a program. A label can either be for the form
 //! `<symbol>:` or `<digit>:`. For the former, this introduces a symbol with the
@@ -64,7 +64,7 @@
 //! - Long post-indexed indirect: `[<operand>], <reg>`.
 //!
 //! `<operand>` is any operand expression, while `<reg>` is any of the `x`, `y`,
-//! or `s` registers. For example: 
+//! or `s` registers. For example:
 //! ```text
 //! adc $1235, x
 //! lda #$100u16
