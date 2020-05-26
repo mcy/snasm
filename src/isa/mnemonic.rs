@@ -48,6 +48,36 @@ macro_rules! mnemonics {
   };
 }
 
+impl Mnemonic {
+  /// Returns whether this is a PC-relative instruction: that is, whether its
+  /// value is interpreted as an offset to the program counter.
+  pub fn is_pc_relative(self) -> bool {
+    match self {
+      Self::Per
+      | Self::Bcs
+      | Self::Bcc
+      | Self::Beq
+      | Self::Bne
+      | Self::Bmi
+      | Self::Bpl
+      | Self::Bvs
+      | Self::Bvc
+      | Self::Bra
+      | Self::Brl => true,
+      _ => false,
+    }
+  }
+
+  /// Returns whether this function uses the PBR, instead of the DBR, for
+  /// performing absolute and direct addressing.
+  pub fn uses_pbr(self) -> bool {
+    match self {
+      Self::Jmp | Self::Jsr => true,
+      _ => false,
+    }
+  }
+}
+
 impl FromStr for Mnemonic {
   type Err = MnemonicParseError;
   fn from_str(s: &str) -> Result<Self, Self::Err> {

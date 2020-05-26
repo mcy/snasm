@@ -82,6 +82,8 @@
 //! The parser is not aware of what the valid combinations of mnemonics,
 //! addressing modes, index registers, and operand types are.
 
+use crate::isa::Addr;
+use crate::isa::Long;
 use crate::isa::Mnemonic;
 
 pub mod fmt;
@@ -144,13 +146,13 @@ impl std::fmt::Debug for FileSpan<'_> {
 #[derive(Clone, Debug)]
 pub struct Atom<'asm> {
   /// The actual semantic content of the atom.
-  inner: AtomType<'asm>,
+  pub inner: AtomType<'asm>,
   /// This atom's end-of-line comment, if it had one.
-  comment: Option<Comment<'asm>>,
+  pub comment: Option<Comment<'asm>>,
   /// Whether this atom was the last one on a line.
-  has_newline: bool,
+  pub has_newline: bool,
   /// The span this atom was parsed from, if any.
-  span: Option<FileSpan<'asm>>,
+  pub span: Option<FileSpan<'asm>>,
 }
 
 /// Various types of `Atom`s.
@@ -214,6 +216,15 @@ impl Int {
   pub fn is_negative(self) -> bool {
     self.value < 0
   }
+
+  /// Converts this integer into an `Addr` value, according to `ty`.
+  pub fn to_addr(self) -> Addr {
+    match self.ty {
+      IntType::I8 => Addr::I8(self.value as u8),
+      IntType::I16 => Addr::I16(self.value as u16),
+      IntType::I24 => Addr::I24(Long::from_u32(self.value as u32)),
+    }
+  }
 }
 
 /// A digit style: decimal, hex, or binary.
@@ -239,7 +250,10 @@ impl DigitStyle {
 }
 
 /// An integer type: a one, two, or three-byte integers.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+///
+/// This enum is ordered: smaller integer types compare smaller than bigger
+/// integer types.
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum IntType {
   /// A single byte.
   I8,
@@ -260,6 +274,25 @@ impl IntType {
     }
   }
 
+  /// Checks that `val` can fit into this `IntType`.
+  ///
+  /// To "fit in", it either needs to be in-range as a signed integer, or as
+  /// an unsigned integer. This boils down to "are the unused bits all ones,
+  /// or all zeroes?".
+  pub fn in_range(self, val: i32) -> bool {
+    let val = val as u32;
+    let mask = match self {
+      Self::I8 => 0xff,
+      Self::I16 => 0xffff,
+      Self::I24 => 0xffffff,
+    };
+    // Either clearing `mask` will give us zero, or setting it will give
+    // all ones.
+    let with_mask_cleared = val & !mask;
+    let with_mask_set = val | mask;
+    with_mask_cleared == 0 || !with_mask_set == 0
+  }
+
   /// Returns the smallest unsigned `IntType` that fits `val`, if such exists.
   ///
   /// Positive numbers are treated as unsigned; negative numbers, however, are
@@ -267,16 +300,10 @@ impl IntType {
   /// Negative numbers are simply treated as alternate representations for
   /// positive, unsigned numbers. When in doubt, stick add an explicit prefix.
   pub fn smallest_for(val: i32) -> Option<Self> {
-    #[allow(overlapping_patterns)]
-    match val {
-      0..=0xff => Some(Self::I8),
-      0..=0xffff => Some(Self::I16),
-      0..=0xffffff => Some(Self::I24),
-      -0x80..=0 => Some(Self::I8),
-      -0x8000..=0 => Some(Self::I16),
-      -0x800000..=0 => Some(Self::I24),
-      _ => None,
-    }
+    [Self::I8, Self::I16, Self::I24]
+      .iter()
+      .copied()
+      .find(|i| i.in_range(val))
   }
 }
 
@@ -327,6 +354,31 @@ impl<Arg> AddrExpr<Arg> {
       Self::LongIndIdx(a, _) => (Some(a), None),
       Self::Move(a, b) => (Some(a), Some(b)),
     }
+  }
+
+  /// Maps this `AddrExpr` by converting arguments contained within using a
+  /// closure.
+  ///
+  /// If the closure returns an error, the function returns that error
+  /// immediately.
+  pub fn map<U, E>(
+    &self,
+    mut f: impl FnMut(&Arg) -> Result<U, E>,
+  ) -> Result<AddrExpr<U>, E> {
+    let addr = match self {
+      Self::Acc => AddrExpr::Acc,
+      Self::Imm(a) => AddrExpr::Imm(f(a)?),
+      Self::Abs(a) => AddrExpr::Abs(f(a)?),
+      Self::Idx(a, x) => AddrExpr::Idx(f(a)?, *x),
+      Self::Ind(a) => AddrExpr::Ind(f(a)?),
+      Self::IdxInd(a, x) => AddrExpr::IdxInd(f(a)?, *x),
+      Self::IndIdx(a, x) => AddrExpr::IndIdx(f(a)?, *x),
+      Self::IdxIndIdx(a, x, y) => AddrExpr::IdxIndIdx(f(a)?, *x, *y),
+      Self::LongInd(a) => AddrExpr::LongInd(f(a)?),
+      Self::LongIndIdx(a, x) => AddrExpr::LongIndIdx(f(a)?, *x),
+      Self::Move(a, b) => AddrExpr::Move(f(a)?, f(b)?),
+    };
+    Ok(addr)
   }
 }
 
