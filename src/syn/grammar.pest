@@ -9,6 +9,7 @@ RParen = _{ ")" }
 LBrack = _{ "[" }
 RBrack = _{ "]" }
 Hash = _{ "#" }
+Dot = _{ "." }
 
 Symbol = @{ (ASCII_ALPHA | "_" | ".") ~ (ASCII_ALPHA | "_" | "." | ASCII_DIGIT)* }
 
@@ -37,7 +38,7 @@ LabelRef = @{ ASCII_DIGIT ~ ("b" | "f") }
 DirectiveName = @{ "." ~ Symbol }
 Directive = { DirectiveName ~ (Operand ~ Comma)* ~ Operand?}
 
-Mnemonic = @{ ASCII_ALPHA{3} }
+Mnemonic = @{ ASCII_ALPHA{3} ~ (Dot ~ IntType)? }
 
 IdxReg = { "x" | "y" | "s" | "X" | "Y" | "S" }
 AddrAcc = { "a" | "A" }

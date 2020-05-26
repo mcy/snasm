@@ -75,6 +75,10 @@
 //! jml [$f0_f0_f0]
 //! ```
 //!
+//! Additionally, an instruction may be followed by a suffix to indicate its
+//! length: for example, `lda.i8 my_label` will always be interpreted as the
+//! lowest byte of `my_label`.
+//!
 //! The parser is not aware of what the valid combinations of mnemonics,
 //! addressing modes, index registers, and operand types are.
 
@@ -87,14 +91,14 @@ pub use fmt::print;
 pub use parse::{parse, Error, Position, Span};
 
 /// A symbol, representing some location in a program.
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Symbol<'asm> {
   /// The name of this symbol.
   pub name: &'asm str,
 }
 
 /// A line comment in a file.
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Comment<'asm> {
   /// The text of the comment, including the comment character.
   ///
@@ -107,8 +111,10 @@ pub struct Comment<'asm> {
 /// An assembly file consists of several
 #[derive(Clone, Debug)]
 pub struct File<'asm> {
-  name: Option<&'asm str>,
-  atoms: Vec<Atom<'asm>>,
+  /// The name of this file.
+  pub name: Option<&'asm str>,
+  /// The atoms that make up this file.
+  pub atoms: Vec<Atom<'asm>>,
 }
 
 /// A span with a file name attached to it.
@@ -160,7 +166,10 @@ pub enum AtomType<'asm> {
   Directive(Symbol<'asm>, Vec<Operand<'asm>>),
 
   /// An instruction: `adc $ff, x`.
-  Instruction(Mnemonic, Option<AddrExpr<'asm>>),
+  ///
+  /// Each instruction consists of a mnemonic, an optional width, and an
+  /// optional address expression.
+  Instruction(Mnemonic, Option<IntType>, Option<AddrExpr<'asm>>),
 
   /// An empty atom, representing an empty line.
   Empty,
@@ -244,9 +253,9 @@ impl IntType {
   /// Parses a string into an `IntType`.
   pub fn from_str(s: &str) -> Option<Self> {
     match s {
-      "i8" => Some(Self::I8),
-      "i16" => Some(Self::I16),
-      "i24" => Some(Self::I24),
+      "i8" | "I8" => Some(Self::I8),
+      "i16" | "I16" => Some(Self::I16),
+      "i24" | "I24" => Some(Self::I24),
       _ => None,
     }
   }

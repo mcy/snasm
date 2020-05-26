@@ -100,59 +100,78 @@ pub fn print(
           }
         }
       }
-      AtomType::Instruction(mne, expr) => {
-        if w.count() > 0 {
-          write!(w, " {}", mne.name())?;
-        } else {
+      AtomType::Instruction(mne, ty, expr) => {
+        let on_margin = w.count() == 0;
+        if on_margin {
           for _ in 0..opts.instruction_indent {
             write!(w, " ")?;
           }
-          write!(w, "{}", mne.name())?;
+        } else {
+          write!(w, " ")?;
         }
+
+        write!(w, "{}", mne.name())?;
+        match ty {
+          Some(IntType::I8) => write!(w, ".i8 ")?,
+          Some(IntType::I16) => write!(w, ".i16")?,
+          Some(IntType::I24) => write!(w, ".i24")?,
+          _ => write!(w, "   ")?,
+        }
+
+        if expr.is_some() {
+          if on_margin {
+            write!(w, " ")?;
+            // Round the count so far up to the indent width.
+            while w.count() % opts.instruction_indent != 0 {
+              write!(w, " ")?;
+            }
+          } else {
+            write!(w, " ")?;
+          }
+        }
+
         match expr {
           Some(AddrExpr::Acc) => {
-            write!(w, " a")?;
+            write!(w, "a")?;
           }
           Some(AddrExpr::Imm(a)) => {
-            write!(w, " #")?;
+            write!(w, "#")?;
             pretty_print_operand(opts, a, &mut w)?;
           }
           Some(AddrExpr::Abs(a)) => {
-            write!(w, " ")?;
             pretty_print_operand(opts, a, &mut w)?;
           }
           Some(AddrExpr::Idx(a, x)) => {
-            write!(w, " ")?;
             pretty_print_operand(opts, a, &mut w)?;
             write!(w, ", {}", x.name())?;
           }
           Some(AddrExpr::Ind(a)) => {
-            write!(w, " (")?;
+            write!(w, "(")?;
             pretty_print_operand(opts, a, &mut w)?;
             write!(w, ")")?;
           }
           Some(AddrExpr::IdxInd(a, x)) => {
-            write!(w, " (")?;
+            write!(w, "(")?;
             pretty_print_operand(opts, a, &mut w)?;
             write!(w, ", {})", x.name())?;
           }
           Some(AddrExpr::IndIdx(a, x)) => {
-            write!(w, " (")?;
+            write!(w, "(")?;
             pretty_print_operand(opts, a, &mut w)?;
             write!(w, "), {}", x.name())?;
           }
           Some(AddrExpr::IdxIndIdx(a, x, y)) => {
-            write!(w, " (")?;
+            write!(w, "(")?;
             pretty_print_operand(opts, a, &mut w)?;
             write!(w, ", {}), {}", x.name(), y.name())?;
           }
           Some(AddrExpr::LongInd(a)) => {
-            write!(w, " [")?;
+            write!(w, "[")?;
             pretty_print_operand(opts, a, &mut w)?;
             write!(w, "]")?;
           }
           Some(AddrExpr::LongIndIdx(a, x)) => {
-            write!(w, " [")?;
+            write!(w, "[")?;
             pretty_print_operand(opts, a, &mut w)?;
             write!(w, "], {}", x.name())?;
           }

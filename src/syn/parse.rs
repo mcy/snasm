@@ -113,9 +113,7 @@ pub fn parse<'asm>(
           file.atoms.push(prev);
         }
         Rule::DigitLabel => {
-          let val = atom.into_inner().next().unwrap().as_str()[..1]
-            .parse()
-            .unwrap();
+          let val = atom.as_str()[..1].parse().unwrap();
 
           let prev = mem::replace(
             &mut prev,
@@ -150,12 +148,16 @@ pub fn parse<'asm>(
         }
         Rule::Instruction => {
           let mut inner = atom.into_inner();
-          let mne = Mnemonic::from_name(inner.next().unwrap().as_str()).ok_or(
-            Error {
+
+          let mne_str = inner.next().unwrap().as_str();
+          let mut split = mne_str.split('.');
+          let mne =
+            Mnemonic::from_name(split.next().unwrap()).ok_or(Error {
               inner: ErrorType::BadMnemonic,
               pos,
-            },
-          )?;
+            })?;
+          let ty = split.next().and_then(IntType::from_str);
+
           let expr = inner
             .next()
             .map::<Result<AddrExpr<'asm>, Error<'asm>>, _>(|addr| {
@@ -218,7 +220,7 @@ pub fn parse<'asm>(
           let prev = mem::replace(
             &mut prev,
             Atom {
-              inner: AtomType::Instruction(mne, expr),
+              inner: AtomType::Instruction(mne, ty, expr),
               comment: None,
               has_newline: false,
               span,

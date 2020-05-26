@@ -30,4 +30,9 @@ impl Long {
       addr: i as u16,
     }
   }
+
+  /// Converts this `Long` into a `u32`, with the top byte cleared.
+  pub fn to_u32(self) -> u32 {
+    ((self.bank as u32) << 16) | (self.addr as u32)
+  }
 }
