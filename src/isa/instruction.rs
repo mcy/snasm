@@ -1,7 +1,8 @@
 //! The 65816 instruction set proper.
 
-use crate::isa::AddrMode;
+use crate::isa::Addr;
 use crate::isa::Mnemonic;
+use crate::syn::AddrExpr;
 
 /// A 65816 instruction.
 ///
@@ -11,7 +12,8 @@ use crate::isa::Mnemonic;
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Instruction {
   mne: Mnemonic,
-  mode: AddrMode,
+  mode: Option<AddrExpr<Addr>>,
+  opcode: u8,
 }
 
 impl Instruction {
@@ -21,9 +23,26 @@ impl Instruction {
   }
 
   /// Gets this instruction's addressing mode.
-  pub fn addressing_mode(&self) -> &AddrMode {
-    &self.mode
+  pub fn addressing_mode(&self) -> Option<AddrExpr<Addr>> {
+    self.mode
   }
+
+  /// Gets this instruction's unique opcode.
+  pub fn opcode(&self) -> u8 {
+    self.opcode
+  }
+}
+
+macro_rules! addr_helper {
+  ($expr:tt, $expr2:tt => $variant:ident($int:ident(_), $int2:ident(_) $($rest:tt)*)) => {
+    AddrExpr::$variant($int($expr), $int2($expr2) $($rest)*)
+  };
+  ($expr:tt, $expr2:tt => $variant:ident($int:ident(_) $($rest:tt)*)) => {
+    AddrExpr::$variant($int($expr) $($rest)*)
+  };
+  ($expr:tt, $expr2:tt => $variant:ident) => {
+    AddrExpr::$variant
+  };
 }
 
 /// A macro for generating `Instruction` rules, i.e., which combinations of
@@ -44,7 +63,7 @@ impl Instruction {
 /// ```
 macro_rules! instructions {
   ($($mne:ident $(= $inh_opcode:literal,)? $({
-    $($opcode:literal => $addr_mode:pat),* $(,)?
+    $($opcode:literal => $addr_mode:ident$(($($addr_args:tt)*))?),* $(,)?
   })?)*) => {
 
     impl Instruction {
@@ -52,54 +71,21 @@ macro_rules! instructions {
       /// addressing mode.
       ///
       /// If no such instruction is represenatable, `None` is returned.
-      pub fn build_from(mne: Mnemonic, mode: AddrMode) -> Option<Instruction> {
-        use AddrMode::*;
+      pub fn build_from(mne: Mnemonic, mode: Option<AddrExpr<Addr>>) -> Option<Instruction> {
+        use crate::syn::IdxReg::*;
+        use crate::isa::Addr::*;
         match (mne, mode) {
           $($($(
-            (Mnemonic::$mne, mode @ $addr_mode) => Some(Self { mne, mode }),
+            (Mnemonic::$mne, mode @
+              Some(addr_helper!(_, _ => $addr_mode$(($($addr_args)*))?))) =>
+              Some(Self { mne, mode, opcode: $opcode }),
           )*)?)*
           $($(
-            (Mnemonic::$mne, Inherent) => {
-              // Force a macro repetition. repetition.
-              let _ = $inh_opcode;
-              Some(Self { mne, mode: Inherent })
+            (Mnemonic::$mne, None) => {
+              Some(Self { mne, mode: None, opcode: $inh_opcode })
             }
           )?)*
           _ => None,
-        }
-      }
-
-      /// Check whether a given mnemonic and address mode are a valid
-      /// combination.
-      pub fn is_valid_combination(
-        mne: Mnemonic,
-        mode: &AddrMode,
-      ) -> bool {
-        use AddrMode::*;
-        match (mne, mode) {
-          $($($(
-            (Mnemonic::$mne, $addr_mode) => true,
-          )*)?)*
-          $($(
-            (Mnemonic::$mne, Inherent) => {
-              // Force a macro repetition. repetition.
-              let _ = $inh_opcode;
-              true
-            }
-          )?)*
-          _ => false,
-        }
-      }
-
-      /// Returns this instruction's opcode.
-      pub fn opcode(&self) -> u8 {
-        use AddrMode::*;
-        match (self.mnemonic(), self.addressing_mode()) {
-          $($($(
-            (Mnemonic::$mne, $addr_mode) => $opcode,
-          )*)?)*
-          $($((Mnemonic::$mne, Inherent) => $inh_opcode,)?)*
-          _ => unreachable!(),
         }
       }
     }
@@ -128,240 +114,240 @@ instructions! {
   Nop = 0xea,
 
   Adc {
-    0x61 => DirectIndirectX(..),
-    0x63 => StackRel(..),
-    0x65 => Direct(..),
-    0x67 => DirectIndirectLong(..),
-    0x69 => Imm(..),
-    0x6d => Abs(..),
-    0x6f => AbsLong(..),
-    0x71 => DirectIndirectY(..),
-    0x72 => DirectIndirect(..),
-    0x73 => StackRelIndirectY(..),
-    0x75 => DirectX(..),
-    0x77 => DirectIndirectLongY(..),
-    0x79 => AbsY(..),
-    0x7d => AbsX(..),
-    0x7f => AbsLongX(..),
+    0x61 => IdxInd(I8(_), X),
+    0x63 => Idx(I8(_), S),
+    0x65 => Abs(I8(_)),
+    0x67 => LongInd(I8(_)),
+    0x69 => Imm(I16(_)),
+    0x6d => Abs(I16(_)),
+    0x6f => Abs(I24(_)),
+    0x71 => IndIdx(I8(_), Y),
+    0x72 => Ind(I8(_)),
+    0x73 => IdxIndIdx(I8(_), S, Y),
+    0x75 => Idx(I8(_), X),
+    0x77 => LongIndIdx(I24(_), Y),
+    0x79 => Idx(I16(_), Y),
+    0x7d => Idx(I16(_), X),
+    0x7f => Idx(I24(_), X),
   }
 
   Sbc {
-    0xe1 => DirectIndirectX(..),
-    0xe3 => StackRel(..),
-    0xe5 => Direct(..),
-    0xe7 => DirectIndirectLong(..),
-    0xe9 => Imm(..),
-    0xed => Abs(..),
-    0xef => AbsLong(..),
-    0xf1 => DirectIndirectY(..),
-    0xf2 => DirectIndirect(..),
-    0xf3 => StackRelIndirectY(..),
-    0xf5 => DirectX(..),
-    0xf7 => DirectIndirectLongY(..),
-    0xf9 => AbsY(..),
-    0xfd => AbsX(..),
-    0xff => AbsLongX(..),
+    0xe1 => IdxInd(I8(_), X),
+    0xe3 => Idx(I8(_), S),
+    0xe5 => Abs(I8(_)),
+    0xe7 => LongInd(I8(_)),
+    0xe9 => Imm(I16(_)),
+    0xed => Abs(I16(_)),
+    0xef => Abs(I24(_)),
+    0xf1 => IndIdx(I8(_), Y),
+    0xf2 => Ind(I8(_)),
+    0xf3 => IdxIndIdx(I8(_), S, Y),
+    0xf5 => Idx(I8(_), X),
+    0xf7 => LongIndIdx(I24(_), Y),
+    0xf9 => Idx(I16(_), Y),
+    0xfd => Idx(I16(_), X),
+    0xff => Idx(I24(_), X),
   }
 
   And {
-    0x21 => DirectIndirectX(..),
-    0x23 => StackRel(..),
-    0x25 => Direct(..),
-    0x27 => DirectIndirectLong(..),
-    0x29 => Imm(..),
-    0x2d => Abs(..),
-    0x2f => AbsLong(..),
-    0x31 => DirectIndirectY(..),
-    0x32 => DirectIndirect(..),
-    0x33 => StackRelIndirectY(..),
-    0x35 => DirectX(..),
-    0x37 => DirectIndirectLongY(..),
-    0x39 => AbsY(..),
-    0x3d => AbsX(..),
-    0x3f => AbsLongX(..),
+    0x21 => IdxInd(I8(_), X),
+    0x23 => Idx(I8(_), S),
+    0x25 => Abs(I8(_)),
+    0x27 => LongInd(I8(_)),
+    0x29 => Imm(I16(_)),
+    0x2d => Abs(I16(_)),
+    0x2f => Abs(I24(_)),
+    0x31 => IndIdx(I8(_), Y),
+    0x32 => Ind(I8(_)),
+    0x33 => IdxIndIdx(I8(_), S, Y),
+    0x35 => Idx(I8(_), X),
+    0x37 => LongIndIdx(I24(_), Y),
+    0x39 => Idx(I16(_), Y),
+    0x3d => Idx(I16(_), X),
+    0x3f => Idx(I24(_), X),
   }
 
   Eor {
-    0x41 => DirectIndirectX(..),
-    0x43 => StackRel(..),
-    0x45 => Direct(..),
-    0x47 => DirectIndirectLong(..),
-    0x49 => Imm(..),
-    0x4d => Abs(..),
-    0x4f => AbsLong(..),
-    0x51 => DirectIndirectY(..),
-    0x52 => DirectIndirect(..),
-    0x53 => StackRelIndirectY(..),
-    0x55 => DirectX(..),
-    0x57 => DirectIndirectLongY(..),
-    0x59 => AbsY(..),
-    0x5d => AbsX(..),
-    0x5f => AbsLongX(..),
+    0x41 => IdxInd(I8(_), X),
+    0x43 => Idx(I8(_), S),
+    0x45 => Abs(I8(_)),
+    0x47 => LongInd(I8(_)),
+    0x49 => Imm(I16(_)),
+    0x4d => Abs(I16(_)),
+    0x4f => Abs(I24(_)),
+    0x51 => IndIdx(I8(_), Y),
+    0x52 => Ind(I8(_)),
+    0x53 => IdxIndIdx(I8(_), S, Y),
+    0x55 => Idx(I8(_), X),
+    0x57 => LongIndIdx(I24(_), Y),
+    0x59 => Idx(I16(_), Y),
+    0x5d => Idx(I16(_), X),
+    0x5f => Idx(I24(_), X),
   }
 
   Ora {
-    0x01 => DirectIndirectX(..),
-    0x03 => StackRel(..),
-    0x05 => Direct(..),
-    0x07 => DirectIndirectLong(..),
-    0x09 => Imm(..),
-    0x0d => Abs(..),
-    0x0f => AbsLong(..),
-    0x11 => DirectIndirectY(..),
-    0x12 => DirectIndirect(..),
-    0x13 => StackRelIndirectY(..),
-    0x15 => DirectX(..),
-    0x17 => DirectIndirectLongY(..),
-    0x19 => AbsY(..),
-    0x1d => AbsX(..),
-    0x1f => AbsLongX(..),
+    0x01 => IdxInd(I8(_), X),
+    0x03 => Idx(I8(_), S),
+    0x05 => Abs(I8(_)),
+    0x07 => LongInd(I8(_)),
+    0x09 => Imm(I16(_)),
+    0x0d => Abs(I16(_)),
+    0x0f => Abs(I24(_)),
+    0x11 => IndIdx(I8(_), Y),
+    0x12 => Ind(I8(_)),
+    0x13 => IdxIndIdx(I8(_), S, Y),
+    0x15 => Idx(I8(_), X),
+    0x17 => LongIndIdx(I24(_), Y),
+    0x19 => Idx(I16(_), Y),
+    0x1d => Idx(I16(_), X),
+    0x1f => Idx(I24(_), X),
   }
 
   Asl {
-    0x06 => Direct(..),
-    0x0a => Acc(..),
-    0x0e => Abs(..),
-    0x16 => DirectX(..),
-    0x1e => AbsX(..),
+    0x06 => Abs(I8(_)),
+    0x0a => Acc,
+    0x0e => Abs(I16(_)),
+    0x16 => Idx(I8(_), X),
+    0x1e => Idx(I16(_), X),
   }
 
   Lsr {
-    0x46 => Direct(..),
-    0x4a => Acc(..),
-    0x4e => Abs(..),
-    0x56 => DirectX(..),
-    0x5e => AbsX(..),
+    0x46 => Abs(I8(_)),
+    0x4a => Acc,
+    0x4e => Abs(I16(_)),
+    0x56 => Idx(I8(_), X),
+    0x5e => Idx(I16(_), X),
   }
 
   Rol {
-    0x26 => Direct(..),
-    0x2a => Acc(..),
-    0x2e => Abs(..),
-    0x36 => DirectX(..),
-    0x3e => AbsX(..),
+    0x26 => Abs(I8(_)),
+    0x2a => Acc,
+    0x2e => Abs(I16(_)),
+    0x36 => Idx(I8(_), X),
+    0x3e => Idx(I16(_), X),
   }
 
   Ror {
-    0x66 => Direct(..),
-    0x6a => Acc(..),
-    0x6e => Abs(..),
-    0x76 => DirectX(..),
-    0x7e => AbsX(..),
+    0x66 => Abs(I8(_)),
+    0x6a => Acc,
+    0x6e => Abs(I16(_)),
+    0x76 => Idx(I8(_), X),
+    0x7e => Idx(I16(_), X),
   }
 
   Cmp {
-    0xc1 => DirectIndirectX(..),
-    0xc3 => StackRel(..),
-    0xc5 => Direct(..),
-    0xc7 => DirectIndirectLong(..),
-    0xc9 => Imm(..),
-    0xcd => Abs(..),
-    0xcf => AbsLong(..),
-    0xd1 => DirectIndirectY(..),
-    0xd2 => DirectIndirect(..),
-    0xd3 => StackRelIndirectY(..),
-    0xd5 => DirectX(..),
-    0xd7 => DirectIndirectLongY(..),
-    0xd9 => AbsY(..),
-    0xdd => AbsX(..),
-    0xdf => AbsLongX(..),
+    0xc1 => IdxInd(I8(_), X),
+    0xc3 => Idx(I8(_), S),
+    0xc5 => Abs(I8(_)),
+    0xc7 => LongInd(I8(_)),
+    0xc9 => Imm(I16(_)),
+    0xcd => Abs(I16(_)),
+    0xcf => Abs(I24(_)),
+    0xd1 => IndIdx(I8(_), Y),
+    0xd2 => Ind(I8(_)),
+    0xd3 => IdxIndIdx(I8(_), S, Y),
+    0xd5 => Idx(I8(_), X),
+    0xd7 => LongIndIdx(I24(_), Y),
+    0xd9 => Idx(I16(_), Y),
+    0xdd => Idx(I16(_), X),
+    0xdf => Idx(I24(_), X),
   }
 
   Cpx {
-    0xe0 => Imm(..),
-    0xe4 => Direct(..),
-    0xec => Abs(..),
+    0xe0 => Imm(I16(_)),
+    0xe4 => Abs(I8(_)),
+    0xec => Abs(I16(_)),
   }
 
   Cpy {
-    0xc0 => Imm(..),
-    0xc4 => Direct(..),
-    0xcc => Abs(..),
+    0xc0 => Imm(I16(_)),
+    0xc4 => Abs(I8(_)),
+    0xcc => Abs(I16(_)),
   }
 
   Dec {
-    0x3a => Acc(..),
-    0xc6 => Direct(..),
-    0xce => Abs(..),
-    0xd6 => DirectX(..),
-    0xde => AbsX(..),
+    0x3a => Acc,
+    0xc6 => Abs(I8(_)),
+    0xce => Abs(I16(_)),
+    0xd6 => Idx(I8(_), X),
+    0xde => Idx(I16(_), X),
   }
   Dex = 0xca,
   Dey = 0x88,
 
   Inc {
-    0x1a => Acc(..),
-    0xe6 => Direct(..),
-    0xee => Abs(..),
-    0xf6 => DirectX(..),
-    0xfe => AbsX(..),
+    0x1a => Acc,
+    0xe6 => Abs(I8(_)),
+    0xee => Abs(I16(_)),
+    0xf6 => Idx(I8(_), X),
+    0xfe => Idx(I16(_), X),
   }
   Inx = 0xe8,
   Iny = 0xc8,
 
   Lda {
-    0xa1 => DirectIndirectX(..),
-    0xa3 => StackRel(..),
-    0xa5 => Direct(..),
-    0xa7 => DirectIndirectLong(..),
-    0xa9 => Imm(..),
-    0xad => Abs(..),
-    0xaf => AbsLong(..),
-    0xb1 => DirectIndirectY(..),
-    0xb2 => DirectIndirect(..),
-    0xb3 => StackRelIndirectY(..),
-    0xb5 => DirectX(..),
-    0xb7 => DirectIndirectLongY(..),
-    0xb9 => AbsY(..),
-    0xbd => AbsX(..),
-    0xbf => AbsLongX(..),
+    0xa1 => IdxInd(I8(_), X),
+    0xa3 => Idx(I8(_), S),
+    0xa5 => Abs(I8(_)),
+    0xa7 => LongInd(I8(_)),
+    0xa9 => Imm(I16(_)),
+    0xad => Abs(I16(_)),
+    0xaf => Abs(I24(_)),
+    0xb1 => IndIdx(I8(_), Y),
+    0xb2 => Ind(I8(_)),
+    0xb3 => IdxIndIdx(I8(_), S, Y),
+    0xb5 => Idx(I8(_), X),
+    0xb7 => LongIndIdx(I24(_), Y),
+    0xb9 => Idx(I16(_), Y),
+    0xbd => Idx(I16(_), X),
+    0xbf => Idx(I24(_), X),
   }
   Ldx {
-    0xa2 => Imm(..),
-    0xa6 => Direct(..),
-    0xae => Abs(..),
-    0xb6 => DirectY(..),
-    0xbe => AbsY(..),
+    0xa2 => Imm(I16(_)),
+    0xa6 => Abs(I8(_)),
+    0xae => Abs(I16(_)),
+    0xb6 => Idx(I8(_), Y),
+    0xbe => Idx(I16(_), Y),
   }
   Ldy {
-    0xa0 => Imm(..),
-    0xa4 => Direct(..),
-    0xac => Abs(..),
-    0xb4 => DirectX(..),
-    0xbc => AbsX(..),
+    0xa0 => Imm(I16(_)),
+    0xa4 => Abs(I8(_)),
+    0xac => Abs(I16(_)),
+    0xb4 => Idx(I8(_), X),
+    0xbc => Idx(I16(_), X),
   }
 
   Sta {
-    0x81 => DirectIndirectX(..),
-    0x83 => StackRel(..),
-    0x85 => Direct(..),
-    0x87 => DirectIndirectLong(..),
-    0x8d => Abs(..),
-    0x8f => AbsLong(..),
-    0x91 => DirectIndirectY(..),
-    0x92 => DirectIndirect(..),
-    0x93 => StackRelIndirectY(..),
-    0x95 => DirectX(..),
-    0x97 => DirectIndirectLongY(..),
-    0x99 => AbsY(..),
-    0x9d => AbsX(..),
-    0x9f => AbsLongX(..),
+    0x81 => IdxInd(I8(_), X),
+    0x83 => Idx(I8(_), S),
+    0x85 => Abs(I8(_)),
+    0x87 => LongInd(I8(_)),
+    0x8d => Abs(I16(_)),
+    0x8f => Abs(I24(_)),
+    0x91 => IndIdx(I8(_), Y),
+    0x92 => Ind(I8(_)),
+    0x93 => IdxIndIdx(I8(_), S, Y),
+    0x95 => Idx(I8(_), X),
+    0x97 => LongIndIdx(I24(_), Y),
+    0x99 => Idx(I16(_), Y),
+    0x9d => Idx(I16(_), X),
+    0x9f => Idx(I24(_), X),
   }
   Stx {
-    0x86 => Direct(..),
-    0x8e => Abs(..),
-    0x96 => DirectY(..),
+    0x86 => Abs(I8(_)),
+    0x8e => Abs(I16(_)),
+    0x96 => Idx(I8(_), Y),
   }
   Sty {
-    0x84 => Direct(..),
-    0x8c => Abs(..),
-    0x94 => DirectX(..),
+    0x84 => Abs(I8(_)),
+    0x8c => Abs(I16(_)),
+    0x94 => Idx(I8(_), X),
   }
   Stz {
-    0x64 => Direct(..),
-    0x74 => DirectX(..),
-    0x9c => Abs(..),
-    0x9e => AbsX(..),
+    0x64 => Abs(I8(_)),
+    0x74 => Idx(I8(_), X),
+    0x9c => Abs(I16(_)),
+    0x9e => Idx(I16(_), X),
   }
 
   Tax = 0xaa,
@@ -378,12 +364,12 @@ instructions! {
   Tyx = 0xbb,
   Xba = 0xeb,
 
-  Mvn { 0x54 => BlockMove(..) }
-  Mvp { 0x44 => BlockMove(..) }
+  Mvn { 0x54 => Move(I8(_), I8(_)) }
+  Mvp { 0x44 => Move(I8(_), I8(_)) }
 
-  Pea { 0xf4 => Abs(..) }
-  Pei { 0xd4 => Direct(..) }
-  Per { 0x62 => PcRel(..) }
+  Pea { 0xf4 => Abs(I16(_)) }
+  Pei { 0xd4 => Abs(I8(_)) }
+  Per { 0x62 => Abs(I8(_)) }
 
   Pha = 0x48,
   Phb = 0x8b,
@@ -400,31 +386,29 @@ instructions! {
   Plx = 0xfa,
   Ply = 0x7a,
 
-  Bcc { 0x90 => PcRel(..) }
-  Bcs { 0xb0 => PcRel(..) }
-  Beq { 0xf0 => PcRel(..) }
-  Bne { 0xd0 => PcRel(..) }
-  Bmi { 0x30 => PcRel(..) }
-  Bpl { 0x10 => PcRel(..) }
-  Bvs { 0x50 => PcRel(..) }
-  Bvc { 0x70 => PcRel(..) }
-  Bra { 0x80 => PcRel(..) }
-  Brl { 0x82 => PcRelLong(..) }
+  Bcc { 0x90 => Abs(I8(_)) }
+  Bcs { 0xb0 => Abs(I8(_)) }
+  Beq { 0xf0 => Abs(I8(_)) }
+  Bne { 0xd0 => Abs(I8(_)) }
+  Bmi { 0x30 => Abs(I8(_)) }
+  Bpl { 0x10 => Abs(I8(_)) }
+  Bvs { 0x50 => Abs(I8(_)) }
+  Bvc { 0x70 => Abs(I8(_)) }
+  Bra { 0x80 => Abs(I8(_)) }
+  Brl { 0x82 => Abs(I16(_)) }
 
   Jmp {
-    0x4c => Abs(..),
-    0x6c => AbsIndirect(..),
-    0x7c => AbsIndirectX(..),
-  }
-  Jml {
-    0x5c => AbsLong(..),
-    0xdc => AbsIndirectLong(..),
+    0x4c => Abs(I16(_)),
+    0x6c => Ind(I16(_)),
+    0x7c => IdxInd(I16(_), X),
+    0x5c => Abs(I24(_)),
+    0xdc => LongInd(I24(_)),
   }
   Jsr {
-    0x20 => Abs(..),
-    0xfc => AbsIndirectX(..),
+    0x20 => Abs(I16(_)),
+    0xfc => IdxInd(I16(_), X),
+    0x22 => LongInd(I24(_)),
   }
-  Jsl { 0x22 => AbsLong(..) }
   Rti = 0x40,
   Rts = 0x60,
   Rtl = 0x6b,
@@ -437,28 +421,28 @@ instructions! {
   Sei = 0x78,
   Clv = 0xb8,
 
-  Rep { 0xc2 => Imm(..) }
-  Sep { 0xe2 => Imm(..) }
+  Rep { 0xc2 => Imm(I8(_)) }
+  Sep { 0xe2 => Imm(I8(_)) }
   Xce = 0xfb,
 
   Bit {
-    0x24 => Direct(..),
-    0x2c => Abs(..),
-    0x34 => DirectX(..),
-    0x3c => AbsX(..),
-    0x89 => Imm(..),
+    0x24 => Abs(I8(_)),
+    0x2c => Abs(I16(_)),
+    0x34 => Idx(I8(_), X),
+    0x3c => Idx(I16(_), X),
+    0x89 => Imm(I16(_)),
   }
   Trb {
-    0x14 => Direct(..),
-    0x1c => Abs(..),
+    0x14 => Abs(I8(_)),
+    0x1c => Abs(I16(_)),
   }
   Tsb {
-    0x04 => Direct(..),
-    0x0c => Abs(..),
+    0x04 => Abs(I8(_)),
+    0x0c => Abs(I16(_)),
   }
 
   Brk = 0x00,
-  Cop { 0x02 => Imm(..) }
+  Cop { 0x02 => Imm(I8(_)) }
   Stp = 0xdb,
   Wai = 0xcb,
   Wdm = 0x42,

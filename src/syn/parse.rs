@@ -160,7 +160,7 @@ pub fn parse<'asm>(
 
           let expr = inner
             .next()
-            .map::<Result<AddrExpr<'asm>, Error<'asm>>, _>(|addr| {
+            .map::<Result<AddrExpr<_>, Error<'asm>>, _>(|addr| {
               Ok(match addr.as_rule() {
                 Rule::AddrAcc => AddrExpr::Acc,
                 Rule::AddrImm => AddrExpr::Imm(parse_operand(
@@ -211,6 +211,12 @@ pub fn parse<'asm>(
                   let idx =
                     IdxReg::from_str(inner.next().unwrap().as_str()).unwrap();
                   AddrExpr::LongIndIdx(arg, idx)
+                }
+                Rule::AddrMove => {
+                  let mut inner = addr.into_inner();
+                  let arg1 = parse_operand(inner.next().unwrap())?;
+                  let arg2 = parse_operand(inner.next().unwrap())?;
+                  AddrExpr::Move(arg1, arg2)
                 }
                 _ => unreachable!(),
               })

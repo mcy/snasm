@@ -4,13 +4,22 @@
 //! This module provides functions for assembling, disassembling, and
 //! manipulating machine code for the 65816.
 
-pub mod addressing;
 mod instruction;
 mod mnemonic;
 
-pub use addressing::AddrMode;
 pub use instruction::Instruction;
 pub use mnemonic::Mnemonic;
+
+/// An "address" of 8, 16, or 24 bits.
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum Addr {
+  /// An 8-bit address.
+  I8(u8),
+  /// An 16-bit address.
+  I16(u16),
+  /// An 24-bit address.
+  I24(Long),
+}
 
 /// A 24-bit absolute address.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
@@ -34,5 +43,11 @@ impl Long {
   /// Converts this `Long` into a `u32`, with the top byte cleared.
   pub fn to_u32(self) -> u32 {
     ((self.bank as u32) << 16) | (self.addr as u32)
+  }
+
+  /// Offsets this `Long`. This does not perform 24-bit arithmetic. Instead,
+  /// only the `addr` part is affected, always wrapping around on overflow.
+  pub fn offset(&mut self, offset: i16) {
+    self.addr = self.addr.wrapping_add(offset as u16)
   }
 }

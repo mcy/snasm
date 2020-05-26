@@ -169,7 +169,7 @@ pub enum AtomType<'asm> {
   ///
   /// Each instruction consists of a mnemonic, an optional width, and an
   /// optional address expression.
-  Instruction(Mnemonic, Option<IntType>, Option<AddrExpr<'asm>>),
+  Instruction(Mnemonic, Option<IntType>, Option<AddrExpr<Operand<'asm>>>),
 
   /// An empty atom, representing an empty line.
   Empty,
@@ -282,28 +282,52 @@ impl IntType {
 
 /// A "address expression", encompassing all of the syntactic variations
 /// shared by the 65816 addressing modes.
-#[derive(Clone, Debug)]
-pub enum AddrExpr<'asm> {
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum AddrExpr<Arg> {
   /// Accumulator addressing: `xyz a`.
   Acc,
   /// Immediate addressing: `xyz #$ff`.
-  Imm(Operand<'asm>),
+  Imm(Arg),
   /// Absolute addressing: `xyz $ff`.
-  Abs(Operand<'asm>),
+  Abs(Arg),
   /// Indexed addressing: `xyz $ff, x`.
-  Idx(Operand<'asm>, IdxReg),
+  Idx(Arg, IdxReg),
   /// Indirect addressing: `xyz ($ff)`.
-  Ind(Operand<'asm>),
+  Ind(Arg),
   /// Indxed indirect addressing: `xyz ($ff, x)`
-  IdxInd(Operand<'asm>, IdxReg),
+  IdxInd(Arg, IdxReg),
   /// Indirect indexed addressing: `xyz ($ff), y`.
-  IndIdx(Operand<'asm>, IdxReg),
+  IndIdx(Arg, IdxReg),
   /// Indexed indirect indexed addressing: `xyz ($ff, s), y`
-  IdxIndIdx(Operand<'asm>, IdxReg, IdxReg),
+  IdxIndIdx(Arg, IdxReg, IdxReg),
   /// Long indirect addressing: `xyz [$ff]`.
-  LongInd(Operand<'asm>),
+  LongInd(Arg),
   /// Long indirect indexed addressing: `xyz [$ff], y`.
-  LongIndIdx(Operand<'asm>, IdxReg),
+  LongIndIdx(Arg, IdxReg),
+  /// Move addressing: `xyz $aa, $bb`.
+  Move(Arg, Arg),
+}
+
+impl<Arg> AddrExpr<Arg> {
+  /// Returns references to this addressing expression's arguments.
+  ///
+  /// Addressing modes have varying numbers of arguments. This function returns
+  /// at most two arguments, but most addressing modes have less than that.
+  pub fn args(&self) -> (Option<&Arg>, Option<&Arg>) {
+    match self {
+      Self::Acc => (None, None),
+      Self::Imm(a) => (Some(a), None),
+      Self::Abs(a) => (Some(a), None),
+      Self::Idx(a, _) => (Some(a), None),
+      Self::Ind(a) => (Some(a), None),
+      Self::IdxInd(a, _) => (Some(a), None),
+      Self::IndIdx(a, _) => (Some(a), None),
+      Self::IdxIndIdx(a, _, _) => (Some(a), None),
+      Self::LongInd(a) => (Some(a), None),
+      Self::LongIndIdx(a, _) => (Some(a), None),
+      Self::Move(a, b) => (Some(a), Some(b)),
+    }
+  }
 }
 
 /// A register that can be used in "index position".
@@ -335,22 +359,5 @@ impl IdxReg {
       Self::Y => "y",
       Self::S => "s",
     }
-  }
-}
-
-/// Represents a either a symbol referring to some location in a program,
-/// or an immediate value of type `T`.
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub enum SymOr<T> {
-  /// A pending symbol.
-  Sym(String),
-  /// An immediate, here and now.
-  Imm(T),
-}
-
-impl<T> SymOr<T> {
-  /// Resolves a symbol by replacing `self` with an Imm variant.
-  pub fn resolve(&mut self, imm: T) {
-    *self = Self::Imm(imm);
   }
 }

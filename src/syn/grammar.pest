@@ -51,6 +51,7 @@ AddrIndIdx = { LParen ~ Operand ~ RParen ~ Comma ~ IdxReg }
 AddrIdxIndIdx = { LParen ~ Operand ~ Comma ~ IdxReg ~ RParen ~ Comma ~ IdxReg }
 AddrLongInd = { LBrack ~ Operand ~ RBrack }
 AddrLongIndIdx = { LBrack ~ Operand ~ RBrack ~ Comma ~ IdxReg }
+AddrMove = { Operand ~ Comma ~ Operand }
 
 Addr = _{
     // NOTE: Longer rules need to go first.

@@ -175,6 +175,11 @@ pub fn print(
             pretty_print_operand(opts, a, &mut w)?;
             write!(w, "], {}", x.name())?;
           }
+          Some(AddrExpr::Move(a, b)) => {
+            pretty_print_operand(opts, a, &mut w)?;
+            write!(w, ", ")?;
+            pretty_print_operand(opts, b, &mut w)?;
+          }
           None => {}
         }
       }
