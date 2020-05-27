@@ -3,11 +3,11 @@
 use std::io;
 use std::io::Write as _;
 
+use crate::int::Width;
 use crate::syn::AddrExpr;
 use crate::syn::AtomType;
 use crate::syn::DigitStyle;
 use crate::syn::File;
-use crate::syn::IntType;
 use crate::syn::Operand;
 
 /// Formatter options.
@@ -100,7 +100,7 @@ pub fn print(
           }
         }
       }
-      AtomType::Instruction(mne, ty, expr) => {
+      AtomType::Instruction(mne, width, expr) => {
         let on_margin = w.count() == 0;
         if on_margin {
           for _ in 0..opts.instruction_indent {
@@ -111,11 +111,9 @@ pub fn print(
         }
 
         write!(w, "{}", mne.name())?;
-        match ty {
-          Some(IntType::I8) => write!(w, ".i8 ")?,
-          Some(IntType::I16) => write!(w, ".i16")?,
-          Some(IntType::I24) => write!(w, ".i24")?,
-          _ => write!(w, "   ")?,
+        match width {
+          Some(width) => write!(w, ".{:<3}", width)?,
+          None => write!(w, "    ")?,
         }
 
         if expr.is_some() {
@@ -223,39 +221,23 @@ fn pretty_print_operand(
 ) -> io::Result<()> {
   match op {
     Operand::Int(int) => {
-      let value = int.value;
-      match int.style {
-        DigitStyle::Dec => match int.ty {
-          IntType::I8 if int.is_negative() => write!(w, "{}", value as i8)?,
-          IntType::I16 if int.is_negative() => write!(w, "{}", value as i16)?,
-          IntType::I24 if int.is_negative() => write!(w, "{}", value as i32)?,
-          IntType::I8 => write!(w, "{}", value as u8)?,
-          IntType::I16 => write!(w, "{}", value as u16)?,
-          IntType::I24 => write!(w, "{}", value & 0xffffff)?,
-        },
-        DigitStyle::Hex => match int.ty {
-          IntType::I8 => write!(w, "${:x}", value as u8)?,
-          IntType::I16 => write!(w, "${:x}", value as u16)?,
-          IntType::I24 => write!(w, "${:x}", value & 0xffffff)?,
-        },
-        DigitStyle::Bin => match int.ty {
-          IntType::I8 => write!(w, "%{:b}", value as u8)?,
-          IntType::I16 => write!(w, "%{:b}", value as u16)?,
-          IntType::I24 => write!(w, "%{:b}", value & 0xffffff)?,
-        },
+      match (int.style, int.value) {
+        (DigitStyle::Dec, n) if int.is_negative => write!(w, "{}", n.to_i32())?,
+        (DigitStyle::Dec, n) => write!(w, "{}", n)?,
+        (DigitStyle::Bin, n) => write!(w, "%{:b}", n)?,
+        (DigitStyle::Hex, n) => write!(w, "${:x}", n)?,
       }
 
-      let needs_ty = match int.ty {
-        IntType::I8 => false,
-        IntType::I16 => value < 0x100 && value > -0x80,
-        IntType::I24 => value < 0x10000 && value > -0x8000,
+      let needs_ty = match int.value.width() {
+        Width::I8 => false,
+        Width::I16 => Width::I8.in_range(int.value.to_i32()),
+        Width::I24 => {
+          Width::I8.in_range(int.value.to_i32())
+            || Width::I16.in_range(int.value.to_i32())
+        }
       };
       if opts.always_include_suffix || needs_ty {
-        match int.ty {
-          IntType::I8 => write!(w, "i8")?,
-          IntType::I16 => write!(w, "i16")?,
-          IntType::I24 => write!(w, "i24")?,
-        }
+        write!(w, "{}", int.value.width())?
       }
     }
 

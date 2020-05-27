@@ -10,6 +10,8 @@ use pest_derive::Parser;
 pub use pest::Position;
 pub use pest::Span;
 
+use crate::int::Int;
+use crate::int::Width;
 use crate::isa::Mnemonic;
 use crate::syn::AddrExpr;
 use crate::syn::Atom;
@@ -19,8 +21,7 @@ use crate::syn::DigitStyle;
 use crate::syn::File;
 use crate::syn::FileSpan;
 use crate::syn::IdxReg;
-use crate::syn::Int;
-use crate::syn::IntType;
+use crate::syn::IntLit;
 use crate::syn::Operand;
 use crate::syn::Symbol;
 
@@ -156,7 +157,7 @@ pub fn parse<'asm>(
               inner: ErrorType::BadMnemonic,
               pos,
             })?;
-          let ty = split.next().and_then(IntType::from_str);
+          let ty = split.next().and_then(Width::from_name);
 
           let expr = inner
             .next()
@@ -280,18 +281,18 @@ fn parse_operand<'asm>(
       if is_negative {
         value = -value;
       }
-
-      let ty = inner
+      let width = inner
         .next()
-        .and_then(|s| IntType::from_str(s.as_str()))
-        .or(IntType::smallest_for(value))
+        .and_then(|s| Width::from_name(s.as_str()))
+        .or(Width::smallest_for(value))
         .ok_or_else(|| Error {
           inner: ErrorType::BadInt,
           pos,
         })?;
-      Ok(Operand::Int(Int {
-        value,
-        ty,
+
+      Ok(Operand::Int(IntLit {
+        value: Int::new(value as u32, width),
+        is_negative,
         style: DigitStyle::Dec,
       }))
     }
@@ -303,17 +304,18 @@ fn parse_operand<'asm>(
         inner: ErrorType::BadInt,
         pos: pos.clone(),
       })?;
-      let ty = inner
+      let width = inner
         .next()
-        .and_then(|s| IntType::from_str(s.as_str()))
-        .or(IntType::smallest_for(value))
+        .and_then(|s| Width::from_name(s.as_str()))
+        .or(Width::smallest_for(value))
         .ok_or_else(|| Error {
           inner: ErrorType::BadInt,
           pos,
         })?;
-      Ok(Operand::Int(Int {
-        value,
-        ty,
+
+      Ok(Operand::Int(IntLit {
+        value: Int::new(value as u32, width),
+        is_negative: false,
         style: DigitStyle::Bin,
       }))
     }
@@ -325,17 +327,18 @@ fn parse_operand<'asm>(
         inner: ErrorType::BadInt,
         pos: pos.clone(),
       })?;
-      let ty = inner
+      let width = inner
         .next()
-        .and_then(|s| IntType::from_str(s.as_str()))
-        .or(IntType::smallest_for(value))
+        .and_then(|s| Width::from_name(s.as_str()))
+        .or(Width::smallest_for(value))
         .ok_or_else(|| Error {
           inner: ErrorType::BadInt,
           pos,
         })?;
-      Ok(Operand::Int(Int {
-        value,
-        ty,
+
+      Ok(Operand::Int(IntLit {
+        value: Int::new(value as u32, width),
+        is_negative: false,
         style: DigitStyle::Hex,
       }))
     }

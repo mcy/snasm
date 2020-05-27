@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use crate::isa::Long;
+use crate::int::u24;
 
 /// Mappings for a SNES ROM.
 ///
@@ -25,7 +25,7 @@ pub trait Rom<Byte> {
   fn len(&self) -> usize;
 
   /// Gets the byte at the SNES address `addr`, if it's been mapped in.
-  fn at(&mut self, addr: Long) -> Option<&mut Byte>;
+  fn at(&mut self, addr: u24) -> Option<&mut Byte>;
 }
 
 /// A LoROM-mapped ROM.
@@ -54,7 +54,7 @@ impl<Byte> LoRom<Byte> {
   pub const LEN: usize = 0x400_000;
 
   /// Maps `addr` down to a physical address, if such a mapping exists.
-  pub fn map(mut addr: Long) -> Option<u32> {
+  pub fn map(mut addr: u24) -> Option<u32> {
     // For bank bytes with the second highest bit unset, the lower halves are
     // unmapped:
     if addr.bank & 0x40 == 0 && addr.addr & 0x8000 == 0 {
@@ -120,7 +120,7 @@ impl<Byte: Clone> Rom<Byte> for LoRom<Byte> {
     Self::LEN
   }
 
-  fn at(&mut self, addr: Long) -> Option<&mut Byte> {
+  fn at(&mut self, addr: u24) -> Option<&mut Byte> {
     Self::map(addr)
       .map(move |a| &mut self.page_for_rom_addr(a)[(a & 0xff) as usize])
   }
@@ -134,10 +134,10 @@ mod test {
 
   macro_rules! assert_mapping {
     ($ty:ident, $val:literal => None) => {
-      assert_eq!($ty::<u8>::map(Long::from_u32($val)), None);
+      assert_eq!($ty::<u8>::map(u24::from_u32($val)), None);
     };
     ($ty:ident, $val:literal => $expected:literal) => {
-      assert_eq!($ty::<u8>::map(Long::from_u32($val)), Some($expected));
+      assert_eq!($ty::<u8>::map(u24::from_u32($val)), Some($expected));
     };
   }
 

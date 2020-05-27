@@ -82,8 +82,8 @@
 //! The parser is not aware of what the valid combinations of mnemonics,
 //! addressing modes, index registers, and operand types are.
 
-use crate::isa::Addr;
-use crate::isa::Long;
+use crate::int::Int;
+use crate::int::Width;
 use crate::isa::Mnemonic;
 
 pub mod fmt;
@@ -171,7 +171,7 @@ pub enum AtomType<'asm> {
   ///
   /// Each instruction consists of a mnemonic, an optional width, and an
   /// optional address expression.
-  Instruction(Mnemonic, Option<IntType>, Option<AddrExpr<Operand<'asm>>>),
+  Instruction(Mnemonic, Option<Width>, Option<AddrExpr<Operand<'asm>>>),
 
   /// An empty atom, representing an empty line.
   Empty,
@@ -181,7 +181,7 @@ pub enum AtomType<'asm> {
 #[derive(Clone, Debug)]
 pub enum Operand<'asm> {
   /// A literal integer operand.
-  Int(Int),
+  Int(IntLit),
   /// A string operand.
   String(&'asm str),
   /// A symbol operand, which needs to be resolved against the symbol
@@ -198,33 +198,13 @@ pub enum Operand<'asm> {
 
 /// An integer literal.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub struct Int {
-  /// The value of this integer. If negative, it will be fully sign-extended,
-  /// though only the portion specified by `ty` should be used. In particularm
-  /// 0xffffffff and 0x0000ffff represent the same two-byte integer, though
-  /// the former is viewed as coming from a "signed" literal.
-  pub value: i32,
+pub struct IntLit {
+  /// The value of this literal.
+  pub value: Int,
+  /// Whether this value was declared as a negative integer.
+  pub is_negative: bool,
   /// The "style" of this integer, i.e, the base it was parsed in.
   pub style: DigitStyle,
-  /// The type (i.e., width) of this integer.
-  pub ty: IntType,
-}
-
-impl Int {
-  /// Returns whether this Int is "negative", by observing the sign bit of the
-  /// underlying `i32` value.
-  pub fn is_negative(self) -> bool {
-    self.value < 0
-  }
-
-  /// Converts this integer into an `Addr` value, according to `ty`.
-  pub fn to_addr(self) -> Addr {
-    match self.ty {
-      IntType::I8 => Addr::I8(self.value as u8),
-      IntType::I16 => Addr::I16(self.value as u16),
-      IntType::I24 => Addr::I24(Long::from_u32(self.value as u32)),
-    }
-  }
 }
 
 /// A digit style: decimal, hex, or binary.
@@ -246,64 +226,6 @@ impl DigitStyle {
       Self::Hex => 16,
       Self::Bin => 2,
     }
-  }
-}
-
-/// An integer type: a one, two, or three-byte integers.
-///
-/// This enum is ordered: smaller integer types compare smaller than bigger
-/// integer types.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub enum IntType {
-  /// A single byte.
-  I8,
-  /// A two-byte word.
-  I16,
-  /// A three-byte long.
-  I24,
-}
-
-impl IntType {
-  /// Parses a string into an `IntType`.
-  pub fn from_str(s: &str) -> Option<Self> {
-    match s {
-      "i8" | "I8" => Some(Self::I8),
-      "i16" | "I16" => Some(Self::I16),
-      "i24" | "I24" => Some(Self::I24),
-      _ => None,
-    }
-  }
-
-  /// Checks that `val` can fit into this `IntType`.
-  ///
-  /// To "fit in", it either needs to be in-range as a signed integer, or as
-  /// an unsigned integer. This boils down to "are the unused bits all ones,
-  /// or all zeroes?".
-  pub fn in_range(self, val: i32) -> bool {
-    let val = val as u32;
-    let mask = match self {
-      Self::I8 => 0xff,
-      Self::I16 => 0xffff,
-      Self::I24 => 0xffffff,
-    };
-    // Either clearing `mask` will give us zero, or setting it will give
-    // all ones.
-    let with_mask_cleared = val & !mask;
-    let with_mask_set = val | mask;
-    with_mask_cleared == 0 || !with_mask_set == 0
-  }
-
-  /// Returns the smallest unsigned `IntType` that fits `val`, if such exists.
-  ///
-  /// Positive numbers are treated as unsigned; negative numbers, however, are
-  /// reated as signed, and so will require an extra bit for the sign bit.
-  /// Negative numbers are simply treated as alternate representations for
-  /// positive, unsigned numbers. When in doubt, stick add an explicit prefix.
-  pub fn smallest_for(val: i32) -> Option<Self> {
-    [Self::I8, Self::I16, Self::I24]
-      .iter()
-      .copied()
-      .find(|i| i.in_range(val))
   }
 }
 

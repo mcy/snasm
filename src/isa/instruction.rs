@@ -1,6 +1,6 @@
 //! The 65816 instruction set proper.
 
-use crate::isa::Addr;
+use crate::int::Int;
 use crate::isa::Mnemonic;
 use crate::syn::AddrExpr;
 
@@ -12,7 +12,7 @@ use crate::syn::AddrExpr;
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Instruction {
   mne: Mnemonic,
-  mode: Option<AddrExpr<Addr>>,
+  mode: Option<AddrExpr<Int>>,
   opcode: u8,
 }
 
@@ -23,7 +23,7 @@ impl Instruction {
   }
 
   /// Gets this instruction's addressing mode.
-  pub fn addressing_mode(&self) -> Option<AddrExpr<Addr>> {
+  pub fn addressing_mode(&self) -> Option<AddrExpr<Int>> {
     self.mode
   }
 
@@ -71,9 +71,9 @@ macro_rules! instructions {
       /// addressing mode.
       ///
       /// If no such instruction is represenatable, `None` is returned.
-      pub fn build_from(mne: Mnemonic, mode: Option<AddrExpr<Addr>>) -> Option<Instruction> {
+      pub fn build_from(mne: Mnemonic, mode: Option<AddrExpr<Int>>) -> Option<Instruction> {
         use crate::syn::IdxReg::*;
-        use crate::isa::Addr::*;
+        use crate::int::Int::*;
         match (mne, mode) {
           $($($(
             (Mnemonic::$mne, mode @

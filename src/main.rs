@@ -5,6 +5,7 @@
 #![deny(warnings)]
 #![deny(unsafe_code)]
 
+pub mod int;
 pub mod isa;
 pub mod rom;
 pub mod syn;
@@ -15,12 +16,12 @@ fn main() {
   adc $ffff
   adc -129
   sbc (foo), s ; bar2
-  lda #%10101010i24  ; bar
+  lda.i8 #%10101010  ; bar
 1:bcc 1f
   php
 "#;
 
-  let file = crate::syn::parse("test.S", asm).unwrap();
+  let file = crate::syn::parse(None, asm).unwrap();
   syn::print(&syn::fmt::Options::default(), &file, &mut std::io::stdout())
     .unwrap();
 }
