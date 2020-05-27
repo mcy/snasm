@@ -8,6 +8,10 @@ use std::fmt;
 use std::fmt::Display;
 
 /// A variable-width integer of 8, 16, or 24 bits.
+///
+/// An `Int` is not meaningfully signed or unsigned; it is merely a collection
+/// of bits. The `to_u32()` and `to_i32()` can be used to unify the underlying
+/// value via either zero or sign extension.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Int {
   /// An 8-bit address.

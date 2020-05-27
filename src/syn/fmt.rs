@@ -7,6 +7,7 @@ use crate::int::Width;
 use crate::syn::AddrExpr;
 use crate::syn::AtomType;
 use crate::syn::DigitStyle;
+use crate::syn::Direction;
 use crate::syn::File;
 use crate::syn::Operand;
 
@@ -79,11 +80,11 @@ pub fn print(
           write!(w, "{}:", sym.name)?
         }
       }
-      AtomType::DigitLabel(val) => {
+      AtomType::DigitLabel(d) => {
         if w.count() > 0 {
-          write!(w, " {}:", val)?
+          write!(w, " {}:", d.into_inner())?
         } else {
-          write!(w, "{}:", val)?
+          write!(w, "{}:", d.into_inner())?
         }
       }
       AtomType::Directive(name, args) => {
@@ -100,7 +101,7 @@ pub fn print(
           }
         }
       }
-      AtomType::Instruction(mne, width, expr) => {
+      AtomType::Instruction(ins) => {
         let on_margin = w.count() == 0;
         if on_margin {
           for _ in 0..opts.instruction_indent {
@@ -110,13 +111,13 @@ pub fn print(
           write!(w, " ")?;
         }
 
-        write!(w, "{}", mne.name())?;
-        match width {
+        write!(w, "{}", ins.mne.name())?;
+        match ins.width {
           Some(width) => write!(w, ".{:<3}", width)?,
           None => write!(w, "    ")?,
         }
 
-        if expr.is_some() {
+        if ins.addr.is_some() {
           if on_margin {
             write!(w, " ")?;
             // Round the count so far up to the indent width.
@@ -128,7 +129,7 @@ pub fn print(
           }
         }
 
-        match expr {
+        match &ins.addr {
           Some(AddrExpr::Acc) => {
             write!(w, "a")?;
           }
@@ -243,13 +244,10 @@ fn pretty_print_operand(
 
     Operand::String(..) => unreachable!(),
     Operand::Symbol(s) => write!(w, "{}", s.name)?,
-    Operand::LabelRef { value, is_forward } => {
-      if *is_forward {
-        write!(w, "{}f", value)?
-      } else {
-        write!(w, "{}b", value)?
-      }
-    }
+    Operand::DigitLabelRef(dlr) => match dlr.dir {
+      Direction::Forward => write!(w, "{}f", dlr.digit.into_inner())?,
+      Direction::Backward => write!(w, "{}b", dlr.digit.into_inner())?,
+    },
   }
 
   Ok(())

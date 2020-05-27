@@ -162,7 +162,7 @@ pub enum AtomType<'asm> {
   Label(Symbol<'asm>),
 
   /// A local digit label definition: `1:`.
-  DigitLabel(u8),
+  DigitLabel(Digit),
 
   /// A directive: `.origin $100`.
   Directive(Symbol<'asm>, Vec<Operand<'asm>>),
@@ -171,10 +171,21 @@ pub enum AtomType<'asm> {
   ///
   /// Each instruction consists of a mnemonic, an optional width, and an
   /// optional address expression.
-  Instruction(Mnemonic, Option<Width>, Option<AddrExpr<Operand<'asm>>>),
+  Instruction(InstructionLine<'asm>),
 
   /// An empty atom, representing an empty line.
   Empty,
+}
+
+/// An unassembled instruction, which may refer to a ficticious instruction.
+#[derive(Clone, Debug)]
+pub struct InstructionLine<'asm> {
+  /// The instruction's mnemonic.
+  pub mne: Mnemonic,
+  /// A width suffix, like `.i8`.
+  pub width: Option<Width>,
+  /// The addressing mode and operand for the instruction.
+  pub addr: Option<AddrExpr<Operand<'asm>>>,
 }
 
 /// An operand, which can be used with a directive or an instruction.
@@ -188,12 +199,44 @@ pub enum Operand<'asm> {
   /// table.
   Symbol(Symbol<'asm>),
   /// A numeric label reference, like `1f` or `2b`.
-  LabelRef {
-    /// The integer value of this reference, between `0` and `9`.
-    value: u8,
-    /// Whether this is a forward reference or a backward reference.
-    is_forward: bool,
-  },
+  DigitLabelRef(DigitLabelRef),
+}
+
+/// A digit label reference, e.g., `1f`.
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub struct DigitLabelRef {
+  /// The digit on the reference.
+  pub digit: Digit,
+  /// The direction the reference is in.
+  pub dir: Direction,
+}
+
+/// A direction for a `DigitLabel` reference.
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum Direction {
+  /// The forward direction, e.g., `1f`.
+  Forward,
+  /// The backward direction, e.g., `1b`.
+  Backward,
+}
+
+/// A decimal digit, from 0 to 9.
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub struct Digit(u8);
+
+impl Digit {
+  /// Creates a new `Digit` with the given digit value.
+  pub fn new(digit: u8) -> Option<Self> {
+    match digit {
+      0..=9 => Some(Digit(digit)),
+      _ => None,
+    }
+  }
+
+  /// Returns the inner digit value.
+  pub fn into_inner(self) -> u8 {
+    self.0
+  }
 }
 
 /// An integer literal.
@@ -205,6 +248,18 @@ pub struct IntLit {
   pub is_negative: bool,
   /// The "style" of this integer, i.e, the base it was parsed in.
   pub style: DigitStyle,
+}
+
+impl IntLit {
+  /// Zero or sign-extends the underlying value, dependong on whether this
+  /// value was declared as negative.
+  pub fn extended_value(self) -> u32 {
+    if self.is_negative {
+      self.value.to_i32() as u32
+    } else {
+      self.value.to_u32()
+    }
+  }
 }
 
 /// A digit style: decimal, hex, or binary.

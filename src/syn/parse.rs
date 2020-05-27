@@ -17,10 +17,14 @@ use crate::syn::AddrExpr;
 use crate::syn::Atom;
 use crate::syn::AtomType;
 use crate::syn::Comment;
+use crate::syn::Digit;
+use crate::syn::DigitLabelRef;
 use crate::syn::DigitStyle;
+use crate::syn::Direction;
 use crate::syn::File;
 use crate::syn::FileSpan;
 use crate::syn::IdxReg;
+use crate::syn::InstructionLine;
 use crate::syn::IntLit;
 use crate::syn::Operand;
 use crate::syn::Symbol;
@@ -115,11 +119,12 @@ pub fn parse<'asm>(
         }
         Rule::DigitLabel => {
           let val = atom.as_str()[..1].parse().unwrap();
+          let digit = Digit::new(val).unwrap();
 
           let prev = mem::replace(
             &mut prev,
             Atom {
-              inner: AtomType::DigitLabel(val),
+              inner: AtomType::DigitLabel(digit),
               comment: None,
               has_newline: false,
               span,
@@ -157,9 +162,9 @@ pub fn parse<'asm>(
               inner: ErrorType::BadMnemonic,
               pos,
             })?;
-          let ty = split.next().and_then(Width::from_name);
+          let width = split.next().and_then(Width::from_name);
 
-          let expr = inner
+          let addr = inner
             .next()
             .map::<Result<AddrExpr<_>, Error<'asm>>, _>(|addr| {
               Ok(match addr.as_rule() {
@@ -227,7 +232,11 @@ pub fn parse<'asm>(
           let prev = mem::replace(
             &mut prev,
             Atom {
-              inner: AtomType::Instruction(mne, ty, expr),
+              inner: AtomType::Instruction(InstructionLine {
+                mne,
+                width,
+                addr,
+              }),
               comment: None,
               has_newline: false,
               span,
@@ -351,8 +360,13 @@ fn parse_operand<'asm>(
         inner: ErrorType::BadInt,
         pos,
       })?;
-      let is_forward = dir == "f";
-      Ok(Operand::LabelRef { value, is_forward })
+      let digit = Digit::new(value).unwrap();
+      let dir = if dir == "f" {
+        Direction::Forward
+      } else {
+        Direction::Backward
+      };
+      Ok(Operand::DigitLabelRef(DigitLabelRef { digit, dir }))
     }
     _ => unreachable!(),
   }
