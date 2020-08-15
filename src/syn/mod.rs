@@ -165,7 +165,7 @@ pub enum AtomType<'asm> {
   DigitLabel(Digit),
 
   /// A directive: `.origin $100`.
-  Directive(Symbol<'asm>, Vec<Operand<'asm>>),
+  Directive(Directive<'asm>),
 
   /// An instruction: `adc $ff, x`.
   ///
@@ -175,6 +175,63 @@ pub enum AtomType<'asm> {
 
   /// An empty atom, representing an empty line.
   Empty,
+}
+
+/// An assembler directive, which may be potentially unknown to the assembler.
+#[derive(Clone, Debug)]
+pub struct Directive<'asm> {
+  /// The original symbol this directive was parsed with.
+  pub sym: Symbol<'asm>,
+  /// This directive's type.
+  pub ty: DirectiveType<'asm>,
+}
+
+impl<'asm> Directive<'asm> {
+  /// Creates a new `Directive`, detecting known symbol names, such as
+  /// ".origin".
+  pub fn from_symbol(
+    sym: Symbol<'asm>,
+    args: Vec<Operand<'asm>>,
+  ) -> Option<Self> {
+    let ty = match sym.name {
+      ".origin" => match &args[..] {
+        [Operand::Int(int)] => DirectiveType::Origin(*int),
+        _ => return None,
+      },
+      ".extern" => match &args[..] {
+        [Operand::Symbol(sym)] => DirectiveType::Extern {
+          sym: *sym,
+          bank: None,
+        },
+        [Operand::Symbol(sym), Operand::Int(bank)] => DirectiveType::Extern {
+          sym: *sym,
+          bank: Some(*bank),
+        },
+        _ => return None,
+      },
+      _ => DirectiveType::Unknown(args),
+    };
+    Some(Directive { sym, ty })
+  }
+}
+
+/// A directive type, indicating a (potentially well-known) assembler directive.
+#[derive(Clone, Debug)]
+pub enum DirectiveType<'asm> {
+  /// The `.origin` directive, indicating to the assembler that the program
+  /// counter should unconditionally jump to the given argument.
+  Origin(IntLit),
+  /// The `.extern` directive, which indicates that a name is defined in another
+  /// file. If the bank the symbol is allocated in is not given, it is assumed
+  /// to be in the current bank.
+  Extern {
+    /// The external symbol name.
+    sym: Symbol<'asm>,
+    /// The bank, if different from the current one.
+    bank: Option<IntLit>,
+  },
+  /// A directive unknown to the assembler.
+  Unknown(Vec<Operand<'asm>>),
 }
 
 /// An unassembled instruction, which may refer to a ficticious instruction.

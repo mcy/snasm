@@ -8,6 +8,7 @@ use crate::syn::AddrExpr;
 use crate::syn::AtomType;
 use crate::syn::DigitStyle;
 use crate::syn::Direction;
+use crate::syn::DirectiveType;
 use crate::syn::File;
 use crate::syn::Operand;
 
@@ -87,17 +88,36 @@ pub fn print(
           write!(w, "{}:", d.into_inner())?
         }
       }
-      AtomType::Directive(name, args) => {
+      AtomType::Directive(dir) => {
         if w.count() > 0 {
-          write!(w, " {}", name.name)?;
+          write!(w, " {}", dir.sym.name)?;
         } else {
-          write!(w, "{}", name.name)?;
+          write!(w, "{}", dir.sym.name)?;
         }
-        for (i, arg) in args.iter().enumerate() {
-          write!(w, " ")?;
-          pretty_print_operand(opts, arg, &mut w)?;
-          if i + 1 != args.len() {
-            write!(w, ",")?;
+
+        match &dir.ty {
+          DirectiveType::Origin(int) => {
+            write!(w, " ")?;
+            pretty_print_operand(opts, &Operand::Int(*int), &mut w)?;
+          }
+          DirectiveType::Extern { sym, bank: None } => {
+            write!(w, " {}", sym.name)?
+          }
+          DirectiveType::Extern {
+            sym,
+            bank: Some(bank),
+          } => {
+            write!(w, " {}, ", sym.name)?;
+            pretty_print_operand(opts, &Operand::Int(*bank), &mut w)?;
+          }
+          DirectiveType::Unknown(args) => {
+            for (i, arg) in args.iter().enumerate() {
+              write!(w, " ")?;
+              pretty_print_operand(opts, arg, &mut w)?;
+              if i + 1 != args.len() {
+                write!(w, ",")?;
+              }
+            }
           }
         }
       }

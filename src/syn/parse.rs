@@ -21,6 +21,7 @@ use crate::syn::Digit;
 use crate::syn::DigitLabelRef;
 use crate::syn::DigitStyle;
 use crate::syn::Direction;
+use crate::syn::Directive;
 use crate::syn::File;
 use crate::syn::FileSpan;
 use crate::syn::IdxReg;
@@ -44,6 +45,8 @@ pub enum ErrorType {
   BadMnemonic,
   /// An error due to a bad register name.
   BadRegister,
+  /// An error due to a directive parsing error.
+  BadDirective,
 }
 
 /// A parsing error.
@@ -141,10 +144,15 @@ pub fn parse<'asm>(
               args.push(parse_operand(arg)?);
             }
           }
+          let directive =
+            Directive::from_symbol(Symbol { name }, args).ok_or(Error {
+              inner: ErrorType::BadDirective,
+              pos,
+            })?;
           let prev = mem::replace(
             &mut prev,
             Atom {
-              inner: AtomType::Directive(Symbol { name }, args),
+              inner: AtomType::Directive(directive),
               comment: None,
               has_newline: false,
               span,
