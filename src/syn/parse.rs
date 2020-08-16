@@ -142,7 +142,10 @@ pub fn parse<'asm>(
           for arg in inner {
             args.push(parse_operand(arg)?);
           }
-          let directive = Directive { sym: Symbol { name }, args };
+          let directive = Directive {
+            sym: Symbol { name },
+            args,
+          };
           let prev = mem::replace(
             &mut prev,
             Atom {
