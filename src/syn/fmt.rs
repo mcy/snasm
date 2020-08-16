@@ -4,16 +4,16 @@ use std::io;
 use std::io::Write as _;
 
 use crate::int::Width;
+use crate::isa::Instruction;
 use crate::syn::AddrExpr;
 use crate::syn::AtomType;
 use crate::syn::DigitStyle;
 use crate::syn::Direction;
 use crate::syn::DirectiveType;
 use crate::syn::File;
-use crate::syn::Operand;
-use crate::syn::IntLit;
-use crate::isa::Instruction;
 use crate::syn::InstructionLine;
+use crate::syn::IntLit;
+use crate::syn::Operand;
 
 /// Formatter options.
 ///
@@ -66,11 +66,7 @@ impl Default for Options {
 /// Prints out a `File` using the given options.
 ///
 /// See [`Options`](struct.Options.html) for more details.
-pub fn print(
-  opts: &Options,
-  f: &File,
-  w: impl io::Write,
-) -> io::Result<()> {
+pub fn print(opts: &Options, f: &File, w: impl io::Write) -> io::Result<()> {
   // Any time we write a "real" newline, we reset the counter, so that the
   // counter is just the the number of bytes since a newline.
   let mut w = ByteCounter::new(w);
@@ -112,6 +108,23 @@ pub fn print(
           } => {
             write!(w, " {}, ", sym.name)?;
             pretty_print_operand(opts, &Operand::Int(*bank), &mut w)?;
+          }
+          DirectiveType::Data(bytes) => {
+            for byte in bytes {
+              write!(w, " ")?;
+              pretty_print_operand(opts, &Operand::Int(*byte), &mut w)?;
+              write!(w, ",")?;
+            }
+          }
+          DirectiveType::Fill { value, count } => {
+            write!(w, " ")?;
+            pretty_print_operand(opts, &Operand::Int(*value), &mut w)?;
+            write!(w, ", ")?;
+            pretty_print_operand(opts, &Operand::Int(*count), &mut w)?;
+          }
+          DirectiveType::Zero(count) => {
+            write!(w, " ")?;
+            pretty_print_operand(opts, &Operand::Int(*count), &mut w)?;
           }
           DirectiveType::Unknown(args) => {
             for (i, arg) in args.iter().enumerate() {
@@ -257,14 +270,18 @@ pub fn print_instruction(
   let line = InstructionLine {
     mne: inst.mnemonic(),
     width: None,
-    addr: inst.addressing_mode().map(|addr| addr.map(|_, &int| -> Result<_, ()> {
-      Ok(Operand::Int(IntLit {
-        value: int,
-        is_neg: false,
-        is_not: false,
-        style: DigitStyle::Hex,
-      }))
-    }).unwrap())
+    addr: inst.addressing_mode().map(|addr| {
+      addr
+        .map(|_, &int| -> Result<_, ()> {
+          Ok(Operand::Int(IntLit {
+            value: int,
+            is_neg: false,
+            is_not: false,
+            style: DigitStyle::Hex,
+          }))
+        })
+        .unwrap()
+    }),
   };
   print_instruction_line(opts, &line, &mut ByteCounter::new(w))
 }

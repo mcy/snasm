@@ -2,8 +2,8 @@
 
 use std::io;
 
-use crate::int::Width;
 use crate::int::Int;
+use crate::int::Width;
 use crate::isa::Mnemonic;
 use crate::syn::AddrExpr;
 
@@ -87,7 +87,9 @@ macro_rules! addr_helper_count {
   ($variant:ident($int:ident(_) $($rest:tt)*)) => {
     Width::$int.bytes()
   };
-  ($variant:ident) => { 0 };
+  ($variant:ident) => {
+    0
+  };
 }
 
 /// A macro for generating `Instruction` rules, i.e., which combinations of
@@ -137,7 +139,7 @@ macro_rules! instructions {
       /// Attempts to parse an instruction from the given `Read`.
       pub fn read(mut r: impl io::Read) -> io::Result<Instruction> {
         use crate::syn::IdxReg::*;
-        
+
         let mut opcode = [0u8];
         r.read_exact(&mut opcode)?;
         let opcode = opcode[0];
@@ -162,7 +164,7 @@ macro_rules! instructions {
       /// Attempts to write this instruction to the given `Write`
       pub fn write(&self, mut w: impl io::Write) -> io::Result<()> {
         use crate::syn::IdxReg::*;
-        use crate::int::Int::*;        
+        use crate::int::Int::*;
         w.write_all(&[self.opcode])?;
         match self.opcode {
           $($($(
@@ -195,7 +197,7 @@ macro_rules! instructions {
             $inh_opcode => 0,
           )?)*
         }) as usize
-      } 
+      }
     }
 
     #[test]

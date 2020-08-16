@@ -9,6 +9,7 @@ use crate::int::Int;
 use crate::int::Width;
 use crate::isa::Instruction;
 use crate::isa::Mnemonic;
+use crate::syn::fmt;
 use crate::syn::AddrExpr;
 use crate::syn::Atom;
 use crate::syn::AtomType;
@@ -18,7 +19,6 @@ use crate::syn::DirectiveType;
 use crate::syn::File;
 use crate::syn::Operand;
 use crate::syn::Symbol;
-use crate::syn::fmt;
 
 mod tables;
 
@@ -42,29 +42,47 @@ impl<'asm> Object<'asm> {
   pub fn dump(&self, mut w: impl io::Write) -> io::Result<()> {
     for (addr, block) in &self.blocks {
       writeln!(w, ".origin 0x{:06x}", addr)?;
-      for i in 0..block.inst_offsets.len() {
-        let start = block.inst_offsets[i];
+      for i in 0..block.offsets.len() {
+        let (start, ty) = block.offsets[i];
         let end = block
-          .inst_offsets
+          .offsets
           .get(i + 1)
+          .map(|(idx, _)| idx)
           .copied()
           .unwrap_or(block.data.len());
 
-        let expected_len = (end - start) * 4;
-        let padding = 16 - expected_len;
+        match ty {
+          OffsetType::Code => {
+            write!(w, "{:06x}:", addr.to_u32() + start as u32)?;
+            for j in start..end {
+              write!(w, "  {:02x}", block.data[j])?;
+            }
 
-        write!(w, "{:06x}:", addr.to_u32() + start as u32)?;
-        for j in start..end {
-          write!(w, "  {:02x}", block.data[j])?;
+            let expected_len = (end - start) * 4;
+            let padding = 16 - expected_len;
+            for _ in 0..padding {
+              write!(w, " ")?;
+            }
+            if let Ok(instruction) = Instruction::read(&block.data[start..]) {
+              fmt::print_instruction(
+                &fmt::Options::default(),
+                instruction,
+                &mut w,
+              )?
+            }
+          }
+          OffsetType::Data => {
+            for (n, j) in (start..end).into_iter().enumerate() {
+              if n % 8 == 0 {
+                if n != 0 {
+                  writeln!(w, "")?;
+                }
+                write!(w, "{:06x}:", addr.to_u32() + start as u32 + n as u32)?;
+              }
+              write!(w, "  {:02x}", block.data[j])?;
+            }
+          }
         }
-
-        for _ in 0..padding {
-          write!(w, " ")?;
-        }
-        if let Ok(instruction) = Instruction::read(&block.data[start..]) {
-          fmt::print_instruction(&fmt::Options::default(), instruction, &mut w)?
-        }
-
         writeln!(w, "")?;
       }
 
@@ -90,8 +108,13 @@ impl<'asm> Object<'asm> {
 /// to be complete. Each `Block` roughly corresponds to an `.origin` directive.
 pub struct Block<'asm> {
   data: Vec<u8>,
-  inst_offsets: Vec<usize>,
+  offsets: Vec<(usize, OffsetType)>,
   relocations: Vec<Relocation<'asm>>,
+}
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+enum OffsetType {
+  Code,
+  Data,
 }
 
 impl<'asm> Block<'asm> {
@@ -99,14 +122,19 @@ impl<'asm> Block<'asm> {
   pub fn new() -> Self {
     Block {
       data: Vec::new(),
-      inst_offsets: Vec::new(),
+      offsets: Vec::new(),
       relocations: Vec::new(),
     }
   }
 
   /// Marks the next index as the begining of an instruction.
-  fn push_instruction_marker(&mut self) {
-    self.inst_offsets.push(self.data.len())
+  fn begin_code_offset(&mut self) {
+    self.offsets.push((self.data.len(), OffsetType::Code))
+  }
+
+  /// Marks the next index as the begining of an instruction.
+  fn begin_data_offset(&mut self) {
+    self.offsets.push((self.data.len(), OffsetType::Data))
   }
 
   /// Returns the length of this block.
@@ -136,7 +164,9 @@ pub struct Relocation<'asm> {
 ///
 /// Returns a complete `Object` on success, or a collection of `Error`s that may
 /// have occured during assembly.
-pub fn assemble<'atom, 'asm>(file: &'atom File<'asm>) -> Result<Object<'asm>, Vec<Error<'atom, 'asm>>> {
+pub fn assemble<'atom, 'asm>(
+  file: &'atom File<'asm>,
+) -> Result<Object<'asm>, Vec<Error<'atom, 'asm>>> {
   Assembler::new(file).run()
 }
 
@@ -372,7 +402,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
     let mut block_start = self.pc;
     self.object.blocks.insert(block_start, Block::new());
 
-    for (idx, atom) in self.file.atoms.iter().enumerate() {
+    'atoms: for (idx, atom) in self.file.atoms.iter().enumerate() {
       match &atom.inner {
         AtomType::Label(sym) => {
           self.symbols.lookup(*sym).unwrap().1 = SymbolValue::Addr(self.pc)
@@ -393,6 +423,100 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
           // and start building a new one.
           block_start = self.pc;
           self.object.blocks.insert(block_start, Block::new());
+        }
+        AtomType::Directive(Directive {
+          ty: DirectiveType::Data(bytes),
+          ..
+        }) => {
+          if bytes.is_empty() {
+            continue;
+          }
+          let block = self.object.blocks.get_mut(&block_start).unwrap();
+          block.begin_data_offset();
+          for byte in bytes {
+            let value = match byte.value {
+              Int::I8(n) => n,
+              _ => {
+                self.errors.push(Error {
+                  inner: ErrorType::BadIntType,
+                  cause: atom,
+                });
+                continue 'atoms;
+              }
+            };
+
+            self.pc.addr = match self.pc.addr.checked_add(1) {
+              Some(n) => n,
+              None => {
+                self.errors.push(Error {
+                  inner: ErrorType::BankCrossing,
+                  cause: atom,
+                });
+                0u16
+              }
+            };
+            block.data.push(value);
+          }
+        }
+        AtomType::Directive(Directive {
+          ty: DirectiveType::Fill { value, count },
+          ..
+        }) => {
+          let count = count.value.to_u32();
+          if count == 0 {
+            continue;
+          }
+          let value = match value.value {
+            Int::I8(n) => n,
+            _ => {
+              self.errors.push(Error {
+                inner: ErrorType::BadIntType,
+                cause: atom,
+              });
+              continue 'atoms;
+            }
+          };
+
+          let block = self.object.blocks.get_mut(&block_start).unwrap();
+          block.begin_data_offset();
+          for _ in 0..count {
+            self.pc.addr = match self.pc.addr.checked_add(1) {
+              Some(n) => n,
+              None => {
+                self.errors.push(Error {
+                  inner: ErrorType::BankCrossing,
+                  cause: atom,
+                });
+                0u16
+              }
+            };
+            block.data.push(value);
+          }
+        }
+        AtomType::Directive(Directive {
+          ty: DirectiveType::Zero(count),
+          ..
+        }) => {
+          let count = count.value.to_u32();
+          if count == 0 {
+            continue;
+          }
+
+          let block = self.object.blocks.get_mut(&block_start).unwrap();
+          block.begin_data_offset();
+          for _ in 0..count {
+            self.pc.addr = match self.pc.addr.checked_add(1) {
+              Some(n) => n,
+              None => {
+                self.errors.push(Error {
+                  inner: ErrorType::BankCrossing,
+                  cause: atom,
+                });
+                0u16
+              }
+            };
+            block.data.push(0);
+          }
         }
         AtomType::Directive(..) => continue,
 
@@ -531,7 +655,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
             };
 
           let block = self.object.blocks.get_mut(&block_start).unwrap();
-          block.push_instruction_marker();
+          block.begin_code_offset();
           let _ = instruction.write(&mut block.data);
         }
         AtomType::Empty => continue,
@@ -616,7 +740,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
         } else {
           inst_buf[..2].copy_from_slice(&offset.to_le_bytes());
         }
-        continue
+        continue;
       }
       // All the awful cases have been dealt with. We can just truncate val if
       // necessary and write it to the destination.

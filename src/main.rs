@@ -42,6 +42,10 @@ fn main() {
     tcs
     rtl
 
+  .data $11, $12, $13, $14, $ff, $ff, $ff, $ff, $ff, $ff,
+  .fill %10101010, 20
+  .zero $100
+
   .origin $900000
   main:
     ldx #5_i16

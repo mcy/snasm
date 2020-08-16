@@ -284,10 +284,10 @@ fn parse_operand<'asm>(
   let pos = operand.as_span().start_pos();
   match operand.as_rule() {
     Rule::IntDec | Rule::IntBin | Rule::IntHex => {
-      let radix = match operand.as_rule() {
-        Rule::IntDec => 10,
-        Rule::IntBin => 2,
-        Rule::IntHex => 16,
+      let (style, radix) = match operand.as_rule() {
+        Rule::IntDec => (DigitStyle::Dec, 10),
+        Rule::IntBin => (DigitStyle::Bin, 2),
+        Rule::IntHex => (DigitStyle::Hex, 16),
         _ => unreachable!(),
       };
 
@@ -296,13 +296,16 @@ fn parse_operand<'asm>(
       let mut inner = operand.into_inner();
       let first = inner.next().unwrap();
 
-      let digits = first.as_str().chars().filter(|&c| c != '_').collect::<String>();
+      let digits = first
+        .as_str()
+        .chars()
+        .filter(|&c| c != '_')
+        .collect::<String>();
 
-      let value =
-        u32::from_str_radix(&digits, radix).map_err(|_| Error {
-          inner: ErrorType::BadInt,
-          pos: pos.clone(),
-        })?;
+      let value = u32::from_str_radix(&digits, radix).map_err(|_| Error {
+        inner: ErrorType::BadInt,
+        pos: pos.clone(),
+      })?;
       let width = inner
         .next()
         .and_then(|s| Width::from_name(s.as_str()))
@@ -324,7 +327,7 @@ fn parse_operand<'asm>(
         value,
         is_neg,
         is_not,
-        style: DigitStyle::Dec,
+        style,
       }))
     }
     Rule::Symbol => Ok(Operand::Symbol(Symbol {

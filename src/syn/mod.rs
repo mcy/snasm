@@ -226,6 +226,27 @@ impl<'asm> Directive<'asm> {
         },
         _ => return None,
       },
+      ".data" => {
+        let mut bytes = Vec::new();
+        for arg in args {
+          match arg {
+            Operand::Int(int) => bytes.push(int),
+            _ => return None,
+          }
+        }
+        DirectiveType::Data(bytes)
+      }
+      ".fill" => match &args[..] {
+        [Operand::Int(value), Operand::Int(count)] => DirectiveType::Fill {
+          value: *value,
+          count: *count,
+        },
+        _ => return None,
+      },
+      ".zero" => match &args[..] {
+        [Operand::Int(count)] => DirectiveType::Zero(*count),
+        _ => return None,
+      },
       _ => DirectiveType::Unknown(args),
     };
     Some(Directive { sym, ty })
@@ -247,6 +268,19 @@ pub enum DirectiveType<'asm> {
     /// The bank, if different from the current one.
     bank: Option<IntLit>,
   },
+  /// The `.data` directive, which inserts a stream of literal data bytes.
+  Data(Vec<IntLit>),
+  /// The `.fill` directive, which fills a region with a specific number of
+  /// a particular byte.
+  Fill {
+    /// The value to fill the region with.
+    value: IntLit,
+    /// The number of bytes to fill with.
+    count: IntLit,
+  },
+  /// The `.zero` directive, which fills a region with a specific number of
+  /// zero bytes.
+  Zero(IntLit),
   /// A directive unknown to the assembler.
   Unknown(Vec<Operand<'asm>>),
 }
