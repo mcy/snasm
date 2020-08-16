@@ -7,6 +7,8 @@ use crate::int::Int;
 use crate::int::Width;
 use crate::isa::Instruction;
 use crate::isa::Mnemonic;
+use crate::obj::Object;
+use crate::obj::Relocation;
 use crate::syn::atom::Atom;
 use crate::syn::atom::AtomType;
 use crate::syn::atom::Directive;
@@ -16,8 +18,6 @@ use crate::syn::operand::LocalLabel;
 use crate::syn::operand::Operand;
 use crate::syn::operand::Symbol;
 use crate::syn::src::Source;
-use crate::obj::Object;
-use crate::obj::Relocation;
 
 mod tables;
 

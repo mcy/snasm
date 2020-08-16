@@ -5,13 +5,12 @@
 #![deny(warnings)]
 #![deny(unsafe_code)]
 
-pub mod assembler;
-
+pub mod asm;
 pub mod int;
 pub mod isa;
+pub mod obj;
 pub mod rom;
 pub mod syn;
-pub mod obj;
 
 fn main() {
   let asm = r#"
@@ -64,7 +63,7 @@ fn main() {
   let file = syn::src::Source::parse(None, asm).unwrap();
   println!("{}", file);
 
-  let obj = match assembler::assemble(&file) {
+  let obj = match asm::assemble(&file) {
     Ok(o) => o,
     Err(e) => panic!("{:#?}", e),
   };
