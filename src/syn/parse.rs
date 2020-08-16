@@ -28,6 +28,7 @@ use crate::syn::IdxReg;
 use crate::syn::InstructionLine;
 use crate::syn::IntLit;
 use crate::syn::Operand;
+use crate::syn::PrefixStyle;
 use crate::syn::Symbol;
 
 #[derive(Parser)]
@@ -283,28 +284,52 @@ fn parse_operand<'asm>(
   let pos = operand.as_span().start_pos();
   match operand.as_rule() {
     Rule::IntDec | Rule::IntBin | Rule::IntHex => {
-      let (style, radix) = match operand.as_rule() {
-        Rule::IntDec => (DigitStyle::Dec, 10),
-        Rule::IntBin => (DigitStyle::Bin, 2),
-        Rule::IntHex => (DigitStyle::Hex, 16),
+      let rule = operand.as_rule();
+      let mut inner = operand.into_inner();
+      let mut token = inner.next().unwrap();
+      let (is_neg, is_not) = if token.as_rule() == Rule::IntOp {
+        let s = token.as_str();
+        let values = (s == "-", s == "!");
+        token = inner.next().unwrap();
+        values
+      } else {
+        (false, false)
+      };
+
+      let style = match rule {
+        Rule::IntDec => DigitStyle::Dec,
+        Rule::IntBin => {
+          let style = if token.as_str() == "%" {
+            PrefixStyle::Classic
+          } else {
+            PrefixStyle::Modern
+          };
+          token = inner.next().unwrap();
+          DigitStyle::Bin(style)
+        }
+        Rule::IntHex => {
+          let style = if token.as_str() == "$" {
+            PrefixStyle::Classic
+          } else {
+            PrefixStyle::Modern
+          };
+          token = inner.next().unwrap();
+          DigitStyle::Hex(style)
+        }
         _ => unreachable!(),
       };
 
-      let is_neg = operand.as_str().starts_with("-");
-      let is_not = operand.as_str().starts_with("!");
-      let mut inner = operand.into_inner();
-      let first = inner.next().unwrap();
-
-      let digits = first
+      let digits = token
         .as_str()
         .chars()
         .filter(|&c| c != '_')
         .collect::<String>();
 
-      let value = u32::from_str_radix(&digits, radix).map_err(|_| Error {
-        inner: ErrorType::BadInt,
-        pos: pos.clone(),
-      })?;
+      let value =
+        u32::from_str_radix(&digits, style.radix()).map_err(|_| Error {
+          inner: ErrorType::BadInt,
+          pos: pos.clone(),
+        })?;
       let width = inner
         .next()
         .and_then(|s| Width::from_name(s.as_str()))

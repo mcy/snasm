@@ -17,10 +17,13 @@ DigitsDec = @{ ASCII_DIGIT ~ (ASCII_DIGIT | "_")* }
 DigitsBin = @{ ASCII_BIN_DIGIT ~ (ASCII_BIN_DIGIT | "_")* }
 DigitsHex = @{ ASCII_HEX_DIGIT ~ (ASCII_HEX_DIGIT | "_")* }
 IntType = @{ ("i" | "I") ~ ("8" | "16" | "24") }
-IntDec = ${ ("-" | "!")? ~ DigitsDec ~ IntType? }
-IntBin = ${ ("-" | "!")? ~ "%" ~ DigitsBin ~ IntType? }
-IntHex = ${ ("-" | "!")? ~ "$" ~ DigitsHex ~ IntType? }
-Int = _{ IntDec | IntBin | IntHex }
+IntOp = { "-" | "!" }
+BinPrefix = { "%" | "0b" | "0B" }
+HexPrefix = { "$" | "0x" | "0X" }
+IntDec = ${ IntOp? ~ DigitsDec ~ IntType? }
+IntBin = ${ IntOp? ~ BinPrefix ~ DigitsBin ~ IntType? }
+IntHex = ${ IntOp? ~ HexPrefix ~ DigitsHex ~ IntType? }
+Int = _{ IntBin | IntHex | IntDec }
 
 DString      = ${ "\"" ~ DStringInner ~ "\"" }
 DStringInner = @{ DStringChar* }

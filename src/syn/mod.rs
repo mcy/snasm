@@ -274,7 +274,8 @@ pub struct IntLit {
   pub is_neg: bool,
   /// Whether this value was declared as a "not" integer.
   pub is_not: bool,
-  /// The "style" of this integer, i.e, the base it was parsed in.
+  /// The "style" of this digits, i.e, the base it was parsed in and the
+  /// prefix it had, if any.
   pub style: DigitStyle,
 }
 
@@ -284,9 +285,9 @@ pub enum DigitStyle {
   /// Decimal style: `123`.
   Dec,
   /// Hex style: `$dead`.
-  Hex,
+  Hex(PrefixStyle),
   /// Binary style: `%0110`.
-  Bin,
+  Bin(PrefixStyle),
 }
 
 impl DigitStyle {
@@ -294,10 +295,19 @@ impl DigitStyle {
   pub fn radix(self) -> u32 {
     match self {
       Self::Dec => 10,
-      Self::Hex => 16,
-      Self::Bin => 2,
+      Self::Hex(_) => 16,
+      Self::Bin(_) => 2,
     }
   }
+}
+
+/// A prefix style, i.e., `$ff` vs. `0xff`.
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum PrefixStyle {
+  /// Classic style: `$ff` and `%10`.
+  Classic,
+  /// Modern, C-style: `0xff` and `0b10`.
+  Modern,
 }
 
 /// A "address expression", encompassing all of the syntactic variations

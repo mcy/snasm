@@ -13,6 +13,7 @@ use crate::syn::File;
 use crate::syn::InstructionLine;
 use crate::syn::IntLit;
 use crate::syn::Operand;
+use crate::syn::PrefixStyle;
 
 /// Formatter options.
 ///
@@ -240,7 +241,7 @@ pub fn print_instruction(
             value: int,
             is_neg: false,
             is_not: false,
-            style: DigitStyle::Hex,
+            style: DigitStyle::Hex(PrefixStyle::Classic),
           }))
         })
         .unwrap()
@@ -268,8 +269,10 @@ fn pretty_print_operand(
 
       match (int.style, value) {
         (DigitStyle::Dec, n) => write!(w, "{}", n)?,
-        (DigitStyle::Bin, n) => write!(w, "%{:b}", n)?,
-        (DigitStyle::Hex, n) => write!(w, "${:x}", n)?,
+        (DigitStyle::Bin(PrefixStyle::Classic), n) => write!(w, "%{:b}", n)?,
+        (DigitStyle::Bin(PrefixStyle::Modern), n) => write!(w, "0b{:b}", n)?,
+        (DigitStyle::Hex(PrefixStyle::Classic), n) => write!(w, "${:x}", n)?,
+        (DigitStyle::Hex(PrefixStyle::Modern), n) => write!(w, "0x{:x}", n)?,
       }
 
       let needs_ty = match int.value.width() {
