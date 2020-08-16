@@ -5,7 +5,7 @@ use std::io;
 use crate::int::Int;
 use crate::int::Width;
 use crate::isa::Mnemonic;
-use crate::syn::AddrExpr;
+use crate::syn::code::AddrExpr;
 
 /// A 65816 instruction.
 ///
@@ -119,7 +119,7 @@ macro_rules! instructions {
       ///
       /// If no such instruction is represenatable, `None` is returned.
       pub fn build_from(mne: Mnemonic, mode: Option<AddrExpr<Int>>) -> Option<Instruction> {
-        use crate::syn::IdxReg::*;
+        use crate::syn::code::IdxReg::*;
         use crate::int::Int::*;
         match (mne, mode) {
           $($($(
@@ -138,7 +138,7 @@ macro_rules! instructions {
 
       /// Attempts to parse an instruction from the given `Read`.
       pub fn read(mut r: impl io::Read) -> io::Result<Instruction> {
-        use crate::syn::IdxReg::*;
+        use crate::syn::code::IdxReg::*;
 
         let mut opcode = [0u8];
         r.read_exact(&mut opcode)?;
@@ -163,7 +163,7 @@ macro_rules! instructions {
 
       /// Attempts to write this instruction to the given `Write`
       pub fn write(&self, mut w: impl io::Write) -> io::Result<()> {
-        use crate::syn::IdxReg::*;
+        use crate::syn::code::IdxReg::*;
         use crate::int::Int::*;
         w.write_all(&[self.opcode])?;
         match self.opcode {

@@ -5,32 +5,32 @@ use std::mem;
 use pest::error::Error as PestError;
 use pest::error::InputLocation;
 use pest::iterators::Pair;
-use pest_derive::Parser;
 use pest::Position;
+use pest_derive::Parser;
 
 pub use pest::Span as PestSpan;
 
 use crate::int::Int;
 use crate::int::Width;
 use crate::isa::Mnemonic;
-use crate::syn::AddrExpr;
-use crate::syn::Atom;
-use crate::syn::AtomType;
-use crate::syn::Comment;
-use crate::syn::Digit;
-use crate::syn::DigitLabelRef;
+use crate::syn::atom::Atom;
+use crate::syn::atom::AtomType;
+use crate::syn::atom::Directive;
+use crate::syn::code::AddrExpr;
+use crate::syn::code::Code;
+use crate::syn::code::IdxReg;
 use crate::syn::int::DigitStyle;
+use crate::syn::int::IntLit;
+use crate::syn::int::PrefixStyle;
 use crate::syn::int::Unary;
-use crate::syn::Direction;
-use crate::syn::Directive;
+use crate::syn::operand::Digit;
+use crate::syn::operand::DigitLabelRef;
+use crate::syn::operand::Direction;
+use crate::syn::operand::Operand;
+use crate::syn::operand::Symbol;
+use crate::syn::src::Comment;
 use crate::syn::src::Source;
 use crate::syn::src::Span;
-use crate::syn::IdxReg;
-use crate::syn::InstructionLine;
-use crate::syn::int::IntLit;
-use crate::syn::Operand;
-use crate::syn::int::PrefixStyle;
-use crate::syn::Symbol;
 
 #[derive(Parser)]
 #[grammar = "syn/grammar.pest"]
@@ -164,7 +164,7 @@ pub fn parse<'asm>(
 
           let mne_str = inner.next().unwrap().as_str();
           let mut split = mne_str.split('.');
-          let mne =
+          let mnemonic =
             Mnemonic::from_name(split.next().unwrap()).ok_or(Error {
               inner: ErrorType::BadMnemonic,
               pos,
@@ -239,8 +239,8 @@ pub fn parse<'asm>(
           let prev = mem::replace(
             &mut prev,
             Atom {
-              inner: AtomType::Instruction(InstructionLine {
-                mne,
+              inner: AtomType::Instruction(Code {
+                mnemonic,
                 width,
                 addr,
               }),

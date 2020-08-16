@@ -75,7 +75,8 @@ impl fmt::Display for IntLit {
       (DigitStyle::Hex(PrefixStyle::Modern), n) => write!(f, "0x{:x}", n)?,
     }
 
-    let needs_ty = Some(self.value.width()) != Width::smallest_for(self.value.to_u32());
+    let needs_ty =
+      Some(self.value.width()) != Width::smallest_for(self.value.to_u32());
     if needs_ty {
       write!(f, "_{}", self.value.width())?
     }

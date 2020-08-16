@@ -9,15 +9,15 @@ use crate::int::Int;
 use crate::int::Width;
 use crate::isa::Instruction;
 use crate::isa::Mnemonic;
+use crate::syn::atom::Atom;
+use crate::syn::atom::AtomType;
+use crate::syn::atom::Directive;
+use crate::syn::code::AddrExpr;
 use crate::syn::fmt;
-use crate::syn::AddrExpr;
-use crate::syn::Atom;
-use crate::syn::AtomType;
-use crate::syn::DigitLabelRef;
-use crate::syn::Directive;
 use crate::syn::int::IntLit;
-use crate::syn::Operand;
-use crate::syn::Symbol;
+use crate::syn::operand::DigitLabelRef;
+use crate::syn::operand::Operand;
+use crate::syn::operand::Symbol;
 use crate::syn::src::Source;
 
 mod tables;
@@ -567,14 +567,14 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                   // Now, we compute the current bank, as is relevant to the
                   // instruction being processed.
                   let current_bank: Option<u8> = match self.dbr_state {
-                    _ if inst.mne.uses_pbr() => Some(self.pc.bank),
+                    _ if inst.mnemonic.uses_pbr() => Some(self.pc.bank),
                     DbrState::Pc => Some(self.pc.bank),
                     DbrState::Else => None,
                     DbrState::Fixed(bank) => Some(bank),
                   };
 
                   if current_bank == Some(addr_bank) {
-                    if inst.mne.is_one_byte_branch() {
+                    if inst.mnemonic.is_one_byte_branch() {
                       Ok(Width::I8)
                     } else {
                       Ok(Width::I16)
@@ -619,16 +619,17 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
             }
           };
 
-          let instruction = match Instruction::build_from(inst.mne, operand) {
-            Some(i) => i,
-            None => {
-              self.errors.push(Error {
-                inner: ErrorType::BadInstruction(inst.mne, operand),
-                cause: atom,
-              });
-              continue;
-            }
-          };
+          let instruction =
+            match Instruction::build_from(inst.mnemonic, operand) {
+              Some(i) => i,
+              None => {
+                self.errors.push(Error {
+                  inner: ErrorType::BadInstruction(inst.mnemonic, operand),
+                  cause: atom,
+                });
+                continue;
+              }
+            };
 
           self.pc.addr =
             match self.pc.addr.checked_add(instruction.encoded_len() as u16) {

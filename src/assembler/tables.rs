@@ -3,11 +3,11 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
-use crate::syn::Atom;
-use crate::syn::Digit;
-use crate::syn::DigitLabelRef;
-use crate::syn::Direction;
-use crate::syn::Symbol;
+use crate::syn::atom::Atom;
+use crate::syn::operand::Digit;
+use crate::syn::operand::DigitLabelRef;
+use crate::syn::operand::Direction;
+use crate::syn::operand::Symbol;
 
 /// A symbol table.
 ///

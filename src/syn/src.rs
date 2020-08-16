@@ -2,11 +2,23 @@
 
 use std::fmt;
 
+use crate::syn::atom::Atom;
 use crate::syn::parse;
-use crate::syn::Atom;
 use crate::syn::parse::PestSpan;
 
 pub use parse::Error;
+
+/// A line comment in a file.
+///
+/// Comments consist of a `;` character followed by text, until the end of the
+/// line.
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub struct Comment<'asm> {
+  /// The text of the comment, including the comment character.
+  ///
+  /// E.g., `"; This is a function."`.
+  pub text: &'asm str,
+}
 
 /// An assembly source.
 ///
@@ -25,7 +37,10 @@ pub struct Source<'asm> {
 
 impl<'asm> Source<'asm> {
   /// Parses a source file out of `text`, giving it the given `name`.
-  pub fn parse(name: Option<&'asm str>, text: &'asm str) -> Result<Self, Error<'asm>> {
+  pub fn parse(
+    name: Option<&'asm str>,
+    text: &'asm str,
+  ) -> Result<Self, Error<'asm>> {
     parse::parse(name, text)
   }
 
@@ -69,7 +84,7 @@ impl<'asm> Span<'asm> {
   fn name_or(&self) -> &'asm str {
     match self.name {
       Some(name) => name,
-      None => "<?>"
+      None => "<?>",
     }
   }
 
@@ -106,7 +121,13 @@ impl<'asm> Span<'asm> {
 
 impl fmt::Debug for Span<'_> {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "{:?}[{}..{}]", self.name_or(), self.start_byte(), self.end_byte())
+    write!(
+      f,
+      "{:?}[{}..{}]",
+      self.name_or(),
+      self.start_byte(),
+      self.end_byte()
+    )
   }
 }
 

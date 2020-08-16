@@ -4,15 +4,15 @@ use std::io;
 use std::io::Write as _;
 
 use crate::isa::Instruction;
-use crate::syn::AddrExpr;
-use crate::syn::AtomType;
-use crate::syn::Direction;
-use crate::syn::src::Source;
-use crate::syn::InstructionLine;
-use crate::syn::Operand;
+use crate::syn::atom::AtomType;
+use crate::syn::code::AddrExpr;
+use crate::syn::code::Code;
 use crate::syn::int::DigitStyle;
-use crate::syn::int::PrefixStyle;
 use crate::syn::int::IntLit;
+use crate::syn::int::PrefixStyle;
+use crate::syn::operand::Direction;
+use crate::syn::operand::Operand;
+use crate::syn::src::Source;
 
 /// Formatter options.
 ///
@@ -134,7 +134,7 @@ pub fn print(opts: &Options, f: &Source, w: impl io::Write) -> io::Result<()> {
 
 fn print_instruction_line(
   opts: &Options,
-  inst: &InstructionLine,
+  inst: &Code,
   mut w: &mut ByteCounter<impl io::Write>,
 ) -> io::Result<()> {
   let on_margin = w.count() == 0;
@@ -145,7 +145,7 @@ fn print_instruction_line(
   } else {
     write!(w, " ")?;
   }
-  write!(w, "{}", inst.mne.name())?;
+  write!(w, "{}", inst.mnemonic.name())?;
   match inst.width {
     Some(width) => write!(w, ".{:<3}", width)?,
     None => write!(w, "    ")?,
@@ -226,8 +226,8 @@ pub fn print_instruction(
   inst: Instruction,
   w: impl io::Write,
 ) -> io::Result<()> {
-  let line = InstructionLine {
-    mne: inst.mnemonic(),
+  let line = Code {
+    mnemonic: inst.mnemonic(),
     width: None,
     addr: inst.addressing_mode().map(|addr| {
       addr
