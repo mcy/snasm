@@ -69,9 +69,9 @@ pub fn print(opts: &Options, f: &Source, w: impl io::Write) -> io::Result<()> {
     match &atom.inner {
       AtomType::Label(sym) => {
         if w.count() > 0 {
-          write!(w, " {}:", sym.name)?
+          write!(w, " {}:", sym)?
         } else {
-          write!(w, "{}:", sym.name)?
+          write!(w, "{}:", sym)?
         }
       }
       AtomType::LocalLabel(d) => {
@@ -83,9 +83,9 @@ pub fn print(opts: &Options, f: &Source, w: impl io::Write) -> io::Result<()> {
       }
       AtomType::Directive(dir) => {
         if w.count() > 0 {
-          write!(w, " {}", dir.sym.name)?;
+          write!(w, " {}", dir.sym)?;
         } else {
-          write!(w, "{}", dir.sym.name)?;
+          write!(w, "{}", dir.sym)?;
         }
         for (i, arg) in dir.args.iter().enumerate() {
           write!(w, " ")?;
@@ -249,9 +249,9 @@ fn pretty_print_operand(
   w: &mut impl io::Write,
 ) -> io::Result<()> {
   match op {
-    Operand::Int(int) => write!(w, "{}", int),
-    Operand::Symbol(s) => write!(w, "{}", s.name),
-    Operand::Local(l) =>  write!(w, "{}", l),
+    Operand::Int(i) => write!(w, "{}", i),
+    Operand::Symbol(s) => write!(w, "{}", s),
+    Operand::Local(l) => write!(w, "{}", l),
     Operand::String(..) => unreachable!(),
   }
 }

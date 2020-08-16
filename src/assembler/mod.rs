@@ -60,7 +60,7 @@ impl<'asm> Object<'asm> {
   /// Dumps this object in the style of `objdump` to `w`.
   pub fn dump(&self, mut w: impl io::Write) -> io::Result<()> {
     for (name, addr) in &self.globals {
-      writeln!(w, ".global {}, 0x{:06x}", name.name, addr)?;
+      writeln!(w, ".global {}, 0x{:06x}", name, addr)?;
     }
     for (addr, block) in &self.blocks {
       writeln!(w, ".origin 0x{:06x}", addr)?;
@@ -114,7 +114,7 @@ impl<'asm> Object<'asm> {
           ".reloc.{} 0x{:04x} {}",
           relocation.destination_width,
           relocation.instruction_offset,
-          relocation.source.name
+          relocation.source
         )?;
       }
       writeln!(w, "")?;

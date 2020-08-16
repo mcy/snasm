@@ -14,6 +14,12 @@ pub struct Symbol<'asm> {
   pub name: &'asm str,
 }
 
+impl fmt::Display for Symbol<'_> {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fmt::Display::fmt(self.name, f)
+  }
+}
+
 /// An operand, which can be used with a directive or an instruction.
 #[derive(Clone, Debug)]
 pub enum Operand<'asm> {
