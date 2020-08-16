@@ -17,9 +17,9 @@ DigitsDec = @{ ASCII_DIGIT ~ (ASCII_DIGIT | "_")* }
 DigitsBin = @{ ASCII_BIN_DIGIT ~ (ASCII_BIN_DIGIT | "_")* }
 DigitsHex = @{ ASCII_HEX_DIGIT ~ (ASCII_HEX_DIGIT | "_")* }
 IntType = @{ ("i" | "I") ~ ("8" | "16" | "24") }
-IntDec = ${ "-"? ~ DigitsDec ~ IntType? }
-IntBin = ${ "%" ~ DigitsBin ~ IntType? }
-IntHex = ${ "$" ~ DigitsHex ~ IntType? }
+IntDec = ${ ("-" | "!")? ~ DigitsDec ~ IntType? }
+IntBin = ${ ("-" | "!")? ~ "%" ~ DigitsBin ~ IntType? }
+IntHex = ${ ("-" | "!")? ~ "$" ~ DigitsHex ~ IntType? }
 Int = _{ IntDec | IntBin | IntHex }
 
 DString      = ${ "\"" ~ DStringInner ~ "\"" }
@@ -60,7 +60,7 @@ Addr = _{
     AddrIndIdx |
     AddrLongIndIdx |
     AddrLongInd |
-    AddrAcc | AddrImm | AddrAbs | AddrIdx | AddrInd
+    AddrAcc | AddrImm | AddrIdx | AddrInd | AddrMove | AddrAbs
 }
 
 Instruction = { Mnemonic ~ Addr? }

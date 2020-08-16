@@ -7,6 +7,11 @@
 use std::fmt;
 use std::fmt::Display;
 
+use std::io;
+
+use std::ops::Neg;
+use std::ops::Not;
+
 /// A variable-width integer of 8, 16, or 24 bits.
 ///
 /// An `Int` is not meaningfully signed or unsigned; it is merely a collection
@@ -40,7 +45,7 @@ impl Int {
   /// This function uses `Width::smallest_for()` to find the smallest width that
   /// fits all of the significant bits in `val`.
   #[inline]
-  pub fn best_fit(val: i32) -> Option<Self> {
+  pub fn best_fit(val: u32) -> Option<Self> {
     Width::smallest_for(val).map(|w| Self::new(val as u32, w))
   }
 
@@ -93,6 +98,37 @@ impl Int {
     }
     Iter(self, 0)
   }
+
+  /// Reads a little-endian `Int` of the given width from a `Read`.
+  pub fn read_le(width: Width, mut r: impl io::Read) -> io::Result<Self> {
+    match width {
+      Width::I8 => {
+        let mut buf = [0; 1];
+        r.read_exact(&mut buf)?;
+        Ok(Int::I8(buf[0]))
+      }
+      Width::I16 => {
+        let mut buf = [0; 2];
+        r.read_exact(&mut buf)?;
+        Ok(Int::I16(u16::from_le_bytes(buf)))
+      }
+      Width::I24 => {
+        let mut buf = [0; 3];
+        r.read_exact(&mut buf)?;
+        Ok(Int::I24(u24::from_le_bytes(buf)))
+      }
+    }
+  }
+
+  /// Writes a little-endian `Int` to a `Write`.
+  pub fn write_le(&self, mut w: impl io::Write) -> io::Result<()> {
+    match self {
+      Int::I8(n) => w.write_all(&[*n])?,
+      Int::I16(n) => w.write_all(&n.to_le_bytes())?,
+      Int::I24(n) => w.write_all(&n.to_le_bytes())?,
+    }
+    Ok(())
+  }
 }
 
 impl From<u8> for Int {
@@ -126,6 +162,28 @@ macro_rules! impl_fmt_int {
   }
 }
 impl_fmt_int!(Display, Binary, Octal, LowerHex, UpperHex);
+
+impl Neg for Int {
+  type Output = Self;
+  fn neg(self) -> Self {
+    match self {
+      Self::I8(n) => Self::I8((n as i8).neg() as u8),
+      Self::I16(n) => Self::I16((n as i16).neg() as u16),
+      Self::I24(n) => Self::I24(-n),
+    }
+  }
+}
+
+impl Not for Int {
+  type Output = Self;
+  fn not(self) -> Self {
+    match self {
+      Self::I8(n) => Self::I8(!n),
+      Self::I16(n) => Self::I16(!n),
+      Self::I24(n) => Self::I24(!n),
+    }
+  }
+}
 
 /// A 24-bit 64816 address.
 #[allow(non_camel_case_types)]
@@ -191,6 +249,15 @@ impl u24 {
     u24::from_u32(self.to_u32().wrapping_add(offset as u32))
   }
 
+  /// Creates a new `u24` from the given bytes, in little-endian order.
+  #[inline]
+  pub fn from_le_bytes(bytes: [u8; 3]) -> Self {
+    Self {
+      bank: bytes[2],
+      addr: bytes[0] as u16 | ((bytes[1] as u16) << 8),
+    }
+  }
+
   /// Converts this `u24`'s bytes into an array, in little-endian order.
   #[inline]
   pub fn to_le_bytes(self) -> [u8; 3] {
@@ -212,6 +279,24 @@ macro_rules! impl_fmt_u24 {
   }
 }
 impl_fmt_u24!(Display, Binary, Octal, LowerHex, UpperHex);
+
+impl Neg for u24 {
+  type Output = Self;
+  fn neg(self) -> Self {
+    let val = -self.to_i32();
+    Self::from_u32(val as u32)
+  }
+}
+
+impl Not for u24 {
+  type Output = Self;
+  fn not(self) -> Self {
+    Self {
+      bank: !self.bank,
+      addr: !self.addr,
+    }
+  }
+}
 
 /// An integer Width: a one, two, or three-byte integers.
 ///
@@ -276,6 +361,21 @@ impl Width {
     }
   }
 
+  /// Returns the number of bytes a value of this width contains.
+  ///
+  /// ```
+  /// # use snasm::int::Width;
+  /// assert_eq!(Width::I8.bytes(), 1);
+  /// ```
+  #[inline]
+  pub fn bytes(self) -> u32 {
+    match self {
+      Self::I8 => 1,
+      Self::I16 => 2,
+      Self::I24 => 3,
+    }
+  }
+
   /// Returns the mask for this type.
   ///
   /// A type's mask can be used to extract the bottom `bits()` bits from an
@@ -289,56 +389,29 @@ impl Width {
     }
   }
 
-  /// Checks that the integer `val` can fit into this `Width`.
+  /// Checks that the usigned integer `val` can fit into this `Width`.
   ///
-  /// To "fit in", it either needs to be in-range as a signed integer, or as
-  /// an unsigned integer. This boils down to "are the unused bits all ones,
-  /// or all zeroes?".
-  ///
-  /// `val` is accepted as a signed integer, since the sign of `val` affects
-  /// whether it fits ro not.
   /// ```
   /// # use snasm::int::Width;
   /// assert!(Width::I8.in_range(0));
   /// assert!(Width::I8.in_range(128));
   /// assert!(Width::I8.in_range(255));
   /// assert!(!Width::I8.in_range(256));
-  /// assert!(Width::I8.in_range(-128));
-  /// assert!(!Width::I8.in_range(-129));
   /// ```
-  pub fn in_range(self, val: i32) -> bool {
-    let val = val as u32;
-
-    // The criterion is as follows: either:
-    // - All "insignificant" bits are zero, that is, the number is positive
-    //   and in-range,
-    // - All "insignificant" bits are one, and the highest "significant" bit is
-    //   set (i.e., the number would be negative).
-    let insignificant = !self.mask();
-    let sign_bit = val & (self.mask() + 1 >> 1) != 0;
-
-    val & insignificant == 0
-      || (val & insignificant == insignificant && sign_bit)
+  pub fn in_range(self, val: u32) -> bool {
+    val & !self.mask() == 0
   }
 
-  /// Returns the smallest unsigned `Width` that fits `val`, if such exists.
-  ///
-  /// Positive numbers are treated as unsigned; negative numbers, however, are
-  /// reated as signed, and so will require an extra bit for the sign bit.
-  /// Negative numbers are simply treated as alternate representations for
-  /// positive, unsigned numbers. When in doubt, stick add an explicit prefix.
-  ///
+  /// Returns the smallest `Width` that fits `val`, if such exists.
   /// ```
   /// # use std::i32;
   /// # use snasm::int::Width;
   /// assert_eq!(Width::smallest_for(0), Some(Width::I8));
   /// assert_eq!(Width::smallest_for(255), Some(Width::I8);
   /// assert_eq!(Width::smallest_for(256), Some(Width::I16));
-  /// assert_eq!(Width::smallest_for(-128), Some(Width::I8));
-  /// assert_eq!(Width::smallest_for(-129), Some(Width::I16));
   /// assert_eq!(Width::smallest_for(i32::MAX), None);
   /// ```
-  pub fn smallest_for(val: i32) -> Option<Self> {
+  pub fn smallest_for(val: u32) -> Option<Self> {
     [Self::I8, Self::I16, Self::I24]
       .iter()
       .copied()

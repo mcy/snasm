@@ -1,5 +1,8 @@
 //! The 65816 instruction set proper.
 
+use std::io;
+
+use crate::int::Width;
 use crate::int::Int;
 use crate::isa::Mnemonic;
 use crate::syn::AddrExpr;
@@ -45,6 +48,48 @@ macro_rules! addr_helper {
   };
 }
 
+macro_rules! addr_helper_read {
+  ($r:expr => $variant:ident($int:ident(_), $int2:ident(_) $($rest:tt)*)) => {{
+    let mut r = $r;
+    let int = Int::read_le(Width::$int, &mut r)?;
+    let int2 = Int::read_le(Width::$int2, &mut r)?;
+    // Note the reversed order.
+    AddrExpr::$variant(int2, int $($rest)*)
+  }};
+  ($r:expr => $variant:ident($int:ident(_) $($rest:tt)*)) => {{
+    let int = Int::read_le(Width::$int, $r)?;
+    AddrExpr::$variant(int $($rest)*)
+  }};
+  ($r:expr => $variant:ident) => {
+    AddrExpr::$variant
+  };
+}
+
+macro_rules! addr_helper_write {
+  ($w:expr, $mode:expr => $variant:ident($int:ident(_), $int2:ident(_) $($rest:tt)*)) => {
+    if let Some(AddrExpr::$variant(a @ $int(_), b @ $int2(_) $($rest)*)) = $mode {
+      a.write_le(&mut $w)?;
+      b.write_le(&mut $w)?;
+    }
+  };
+  ($w:expr, $mode:expr => $variant:ident($int:ident(_) $($rest:tt)*)) => {
+    if let Some(AddrExpr::$variant(a @ $int(_) $($rest)*)) = $mode {
+      a.write_le(&mut $w)?;
+    }
+  };
+  ($w:expr, $mode:expr => $variant:ident) => {{}};
+}
+
+macro_rules! addr_helper_count {
+  ($variant:ident($int:ident(_), $int2:ident(_) $($rest:tt)*)) => {
+    Width::$int.bytes() + Width::$int2.bytes()
+  };
+  ($variant:ident($int:ident(_) $($rest:tt)*)) => {
+    Width::$int.bytes()
+  };
+  ($variant:ident) => { 0 };
+}
+
 /// A macro for generating `Instruction` rules, i.e., which combinations of
 /// mnemonic + addr mode are allowed, and what opcode that maps to.
 ///
@@ -88,6 +133,69 @@ macro_rules! instructions {
           _ => None,
         }
       }
+
+      /// Attempts to parse an instruction from the given `Read`.
+      pub fn read(mut r: impl io::Read) -> io::Result<Instruction> {
+        use crate::syn::IdxReg::*;
+        
+        let mut opcode = [0u8];
+        r.read_exact(&mut opcode)?;
+        let opcode = opcode[0];
+        match opcode {
+          $($($(
+            $opcode => {
+              let mne = Mnemonic::$mne;
+              let mode = addr_helper_read!(r =>
+                  $addr_mode$(($($addr_args)*))?);
+              Ok(Self { mne, mode: Some(mode), opcode })
+            }
+          )*)?)*
+          $($(
+            $inh_opcode => {
+              let mne = Mnemonic::$mne;
+              Ok(Self { mne, mode: None, opcode: $inh_opcode })
+            }
+          )?)*
+        }
+      }
+
+      /// Attempts to write this instruction to the given `Write`
+      pub fn write(&self, mut w: impl io::Write) -> io::Result<()> {
+        use crate::syn::IdxReg::*;
+        use crate::int::Int::*;        
+        w.write_all(&[self.opcode])?;
+        match self.opcode {
+          $($($(
+            $opcode => {
+              addr_helper_write!(w, self.mode =>
+                  $addr_mode$(($($addr_args)*))?);
+              Ok(())
+            }
+          )*)?)*
+          $($(
+            $inh_opcode => Ok(()),
+          )?)*
+        }
+      }
+
+      /// Computes how many bytes are needed to encode this instruction.
+      #[inline]
+      pub fn encoded_len(&self) -> usize {
+        Self::encoded_len_for_opcode(self.opcode())
+      }
+
+      /// Computes how many bytes are needed to encode an instruction starting
+      /// with the given opcode.
+      pub fn encoded_len_for_opcode(opcode: u8) -> usize {
+        (1 + match opcode {
+          $($($(
+            $opcode => addr_helper_count!($addr_mode$(($($addr_args)*))?),
+          )*)?)*
+          $($(
+            $inh_opcode => 0,
+          )?)*
+        }) as usize
+      } 
     }
 
     #[test]
@@ -407,7 +515,7 @@ instructions! {
   Jsr {
     0x20 => Abs(I16(_)),
     0xfc => IdxInd(I16(_), X),
-    0x22 => LongInd(I24(_)),
+    0x22 => Abs(I24(_)),
   }
   Rti = 0x40,
   Rts = 0x60,

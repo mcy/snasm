@@ -14,29 +14,32 @@
 //! Comments begin with a semicolon (`;`) and end with a newline.
 //! The parser will preserve comments.
 //!
-//! ## Operands
+//! ## Symbols
 //!
 //! SNASM symbols can be any combination of letters, digits, periods, and
 //! underscores, though they cannot begin with a digit. `.l1234`,
 //! `physics.get_pos`, and `my_cool_fn123` are all valid symbols.
 //!
+//! ## Integers
+//!
 //! SNASM integers may be decimal, binary, or hexadecimal: `123`, `%1010`, or
 //! `$99beef`. They may also be interspersed with underscores in any position,
-//! other than the first character. Decimal literals may also be negative:
-//! `-55`. This is a shorthand for the two's complement of that decimal integer.
+//! other than the first character.
 //!
 //! The type of an integer is the smallest of `i8`, `i16`, and `i24` that can
-//! faithfully represent it. Negative integers have a smaller range, since the
-//! sign bit needs to be stored somewhere. The type can be specified with a
-//! prefix: for example, `$ffu16` is the 16-bit integer `0x00ff`. All integers
-//! are two's complement, little-endian.
+//! faithfully represent the literal. For example, `255` is an `i8`, but `256`
+//! is an `i16`.
 //!
-//! Additionally, forward and backwards numeric label references, like `1f` and
-//! `2b`, are valid operands.
+//! This type can also be forced with a prefix, to force it to a particular
+//! length: for example, `$ffi16` is the 16-bit integer `0x00ff`.
 //!
-//! Eventually, SNASM will support ASCII string literals.
+//! An integer literal may also be lead by a `-` or a `!`. These indicate the
+//! two's complement and one's complement (i.e., binary not), respectively.
+//! Note that these operations are applied *after* the type has been determined.
+//! SNASM integers are not meaningfully signed or unsigned.
 //!
 //! ## Labels
+//!
 //! A label is a named position in a program. A label can either be for the form
 //! `<symbol>:` or `<digit>:`. For the former, this introduces a symbol with the
 //! name `<symbol>`, while the latter may be referred to with `<digit>b` or
@@ -44,6 +47,7 @@
 //! the program, while `1b` the *previous*.
 //!
 //! ## Directives
+//!
 //! A directive begins with a symbol starting with a period, like `.origin`,
 //! followed by a number of comma-separated operands.
 //! Directives affect assembler state in some way: `.origin <pc>` sets the
@@ -72,7 +76,7 @@
 //! adc $1235, x
 //! lda #$100u16
 //! asl a
-//! jml [$f0_f0_f0]
+//! jmp [$f0_f0_f0]
 //! ```
 //!
 //! Additionally, an instruction may be followed by a suffix to indicate its
@@ -80,7 +84,20 @@
 //! lowest byte of `my_label`.
 //!
 //! The parser is not aware of what the valid combinations of mnemonics,
-//! addressing modes, index registers, and operand types are.
+//! addressing modes, index registers, and operand types are; those invariants
+//! are checked by the assembler proper.
+//!
+//! ## Integer type-checking
+//!
+//! SNASM will never implicitly sign/zero-extend, or truncate, any integers.
+//! For example, `jmp $12` is invalid, since `$12` has type `i8`, but `jmp`
+//! requiores an `i16` or `i24`. `jmp $12_i16` would be accepted as an absolute
+//! near-jump.
+//!
+//! SNASM will also infer the type of addressing mode from the integer type.
+//! For example, `adc $12` will always perform a direct-page access, which can
+//! be enforced with a suffix: `adc.i8 $12`. Type-mismatches arising from using
+//! suffixes are also an error: `adc.i8 $12i16` is not allowed.
 
 use crate::int::Int;
 use crate::int::Width;
@@ -302,21 +319,11 @@ pub struct IntLit {
   /// The value of this literal.
   pub value: Int,
   /// Whether this value was declared as a negative integer.
-  pub is_negative: bool,
+  pub is_neg: bool,
+  /// Whether this value was declared as a "not" integer.
+  pub is_not: bool,
   /// The "style" of this integer, i.e, the base it was parsed in.
   pub style: DigitStyle,
-}
-
-impl IntLit {
-  /// Zero or sign-extends the underlying value, dependong on whether this
-  /// value was declared as negative.
-  pub fn extended_value(self) -> u32 {
-    if self.is_negative {
-      self.value.to_i32() as u32
-    } else {
-      self.value.to_u32()
-    }
-  }
 }
 
 /// A digit style: decimal, hex, or binary.
@@ -393,24 +400,27 @@ impl<Arg> AddrExpr<Arg> {
   /// Maps this `AddrExpr` by converting arguments contained within using a
   /// closure.
   ///
+  /// The closure's first argument is the index of the argument, while the
+  /// second argument is the argument itself.
+  ///
   /// If the closure returns an error, the function returns that error
   /// immediately.
   pub fn map<U, E>(
     &self,
-    mut f: impl FnMut(&Arg) -> Result<U, E>,
+    mut f: impl FnMut(usize, &Arg) -> Result<U, E>,
   ) -> Result<AddrExpr<U>, E> {
     let addr = match self {
       Self::Acc => AddrExpr::Acc,
-      Self::Imm(a) => AddrExpr::Imm(f(a)?),
-      Self::Abs(a) => AddrExpr::Abs(f(a)?),
-      Self::Idx(a, x) => AddrExpr::Idx(f(a)?, *x),
-      Self::Ind(a) => AddrExpr::Ind(f(a)?),
-      Self::IdxInd(a, x) => AddrExpr::IdxInd(f(a)?, *x),
-      Self::IndIdx(a, x) => AddrExpr::IndIdx(f(a)?, *x),
-      Self::IdxIndIdx(a, x, y) => AddrExpr::IdxIndIdx(f(a)?, *x, *y),
-      Self::LongInd(a) => AddrExpr::LongInd(f(a)?),
-      Self::LongIndIdx(a, x) => AddrExpr::LongIndIdx(f(a)?, *x),
-      Self::Move(a, b) => AddrExpr::Move(f(a)?, f(b)?),
+      Self::Imm(a) => AddrExpr::Imm(f(0, a)?),
+      Self::Abs(a) => AddrExpr::Abs(f(0, a)?),
+      Self::Idx(a, x) => AddrExpr::Idx(f(0, a)?, *x),
+      Self::Ind(a) => AddrExpr::Ind(f(0, a)?),
+      Self::IdxInd(a, x) => AddrExpr::IdxInd(f(0, a)?, *x),
+      Self::IndIdx(a, x) => AddrExpr::IndIdx(f(0, a)?, *x),
+      Self::IdxIndIdx(a, x, y) => AddrExpr::IdxIndIdx(f(0, a)?, *x, *y),
+      Self::LongInd(a) => AddrExpr::LongInd(f(0, a)?),
+      Self::LongIndIdx(a, x) => AddrExpr::LongIndIdx(f(0, a)?, *x),
+      Self::Move(a, b) => AddrExpr::Move(f(0, a)?, f(1, b)?),
     };
     Ok(addr)
   }

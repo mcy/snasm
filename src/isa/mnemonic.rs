@@ -50,8 +50,25 @@ macro_rules! mnemonics {
 
 impl Mnemonic {
   /// Returns whether this is a PC-relative instruction: that is, whether its
-  /// value is interpreted as an offset to the program counter.
+  /// operand is encoded as an offset from the end of the instruction.
   pub fn is_pc_relative(self) -> bool {
+    match self {
+      Self::Bcs
+      | Self::Bcc
+      | Self::Beq
+      | Self::Bne
+      | Self::Bmi
+      | Self::Bpl
+      | Self::Bvs
+      | Self::Bvc
+      | Self::Bra => true,
+      _ => false,
+    }
+  }
+
+  /// Returns true if this is a "one-byte-wide" branch instruction, which must
+  /// be treated specially by label optimization.
+  pub fn is_one_byte_branch(self) -> bool {
     match self {
       Self::Per
       | Self::Bcs

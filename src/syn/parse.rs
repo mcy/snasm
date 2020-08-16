@@ -140,9 +140,7 @@ pub fn parse<'asm>(
           let name = inner.next().unwrap().as_str();
           let mut args = Vec::new();
           for arg in inner {
-            if arg.as_rule() == Rule::Operand {
-              args.push(parse_operand(arg)?);
-            }
+            args.push(parse_operand(arg)?);
           }
           let directive =
             Directive::from_symbol(Symbol { name }, args).ok_or(Error {
@@ -285,78 +283,48 @@ fn parse_operand<'asm>(
 ) -> Result<Operand<'asm>, Error<'asm>> {
   let pos = operand.as_span().start_pos();
   match operand.as_rule() {
-    Rule::IntDec => {
-      let is_negative = operand.as_str().starts_with("-");
+    Rule::IntDec | Rule::IntBin | Rule::IntHex => {
+      let radix = match operand.as_rule() {
+        Rule::IntDec => 10,
+        Rule::IntBin => 2,
+        Rule::IntHex => 16,
+        _ => unreachable!(),
+      };
+
+      let is_neg = operand.as_str().starts_with("-");
+      let is_not = operand.as_str().starts_with("!");
       let mut inner = operand.into_inner();
       let first = inner.next().unwrap();
 
-      let mut value =
-        i32::from_str_radix(first.as_str(), 10).map_err(|_| Error {
+      let digits = first.as_str().chars().filter(|&c| c != '_').collect::<String>();
+
+      let value =
+        u32::from_str_radix(&digits, radix).map_err(|_| Error {
           inner: ErrorType::BadInt,
           pos: pos.clone(),
         })?;
-      if is_negative {
+      let width = inner
+        .next()
+        .and_then(|s| Width::from_name(s.as_str()))
+        .or(Width::smallest_for(value))
+        .ok_or_else(|| Error {
+          inner: ErrorType::BadInt,
+          pos,
+        })?;
+
+      let mut value = Int::new(value, width);
+      if is_neg {
         value = -value;
       }
-      let width = inner
-        .next()
-        .and_then(|s| Width::from_name(s.as_str()))
-        .or(Width::smallest_for(value))
-        .ok_or_else(|| Error {
-          inner: ErrorType::BadInt,
-          pos,
-        })?;
+      if is_not {
+        value = !value;
+      }
 
       Ok(Operand::Int(IntLit {
-        value: Int::new(value as u32, width),
-        is_negative,
+        value,
+        is_neg,
+        is_not,
         style: DigitStyle::Dec,
-      }))
-    }
-    Rule::IntBin => {
-      let mut inner = operand.into_inner();
-      let first = inner.next().unwrap().as_str();
-
-      let value = i32::from_str_radix(first, 2).map_err(|_| Error {
-        inner: ErrorType::BadInt,
-        pos: pos.clone(),
-      })?;
-      let width = inner
-        .next()
-        .and_then(|s| Width::from_name(s.as_str()))
-        .or(Width::smallest_for(value))
-        .ok_or_else(|| Error {
-          inner: ErrorType::BadInt,
-          pos,
-        })?;
-
-      Ok(Operand::Int(IntLit {
-        value: Int::new(value as u32, width),
-        is_negative: false,
-        style: DigitStyle::Bin,
-      }))
-    }
-    Rule::IntHex => {
-      let mut inner = operand.into_inner();
-      let first = inner.next().unwrap().as_str();
-
-      let value = i32::from_str_radix(first, 16).map_err(|_| Error {
-        inner: ErrorType::BadInt,
-        pos: pos.clone(),
-      })?;
-      let width = inner
-        .next()
-        .and_then(|s| Width::from_name(s.as_str()))
-        .or(Width::smallest_for(value))
-        .ok_or_else(|| Error {
-          inner: ErrorType::BadInt,
-          pos,
-        })?;
-
-      Ok(Operand::Int(IntLit {
-        value: Int::new(value as u32, width),
-        is_negative: false,
-        style: DigitStyle::Hex,
       }))
     }
     Rule::Symbol => Ok(Operand::Symbol(Symbol {
