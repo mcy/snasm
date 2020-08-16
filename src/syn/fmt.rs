@@ -1,17 +1,14 @@
 //! Formatting facilities for SNASM AST.
 
+use std::fmt;
 use std::io;
-use std::io::Write as _;
 
 use crate::isa::Instruction;
-use crate::syn::atom::AtomType;
-use crate::syn::code::AddrExpr;
 use crate::syn::code::Code;
 use crate::syn::int::DigitStyle;
 use crate::syn::int::IntLit;
 use crate::syn::int::PrefixStyle;
 use crate::syn::operand::Operand;
-use crate::syn::src::Source;
 
 /// Formatter options.
 ///
@@ -24,7 +21,7 @@ use crate::syn::src::Source;
 ///   ..Options::default(),
 /// };
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct Options {
   /// Force newlines after every atom.
   ///
@@ -57,173 +54,67 @@ impl Default for Options {
   }
 }
 
-/// Prints out a `Source` using the given options.
+/// A formattable type.
 ///
-/// See [`Options`](struct.Options.html) for more details.
-pub fn print(opts: &Options, f: &Source, w: impl io::Write) -> io::Result<()> {
-  // Any time we write a "real" newline, we reset the counter, so that the
-  // counter is just the the number of bytes since a newline.
-  let mut w = ByteCounter::new(w);
-
-  for atom in f {
-    match &atom.inner {
-      AtomType::Label(sym) => {
-        if w.count() > 0 {
-          write!(w, " {}:", sym)?
-        } else {
-          write!(w, "{}:", sym)?
-        }
-      }
-      AtomType::LocalLabel(d) => {
-        if w.count() > 0 {
-          write!(w, " {}:", d.into_inner())?
-        } else {
-          write!(w, "{}:", d.into_inner())?
-        }
-      }
-      AtomType::Directive(dir) => {
-        if w.count() > 0 {
-          write!(w, " {}", dir.sym)?;
-        } else {
-          write!(w, "{}", dir.sym)?;
-        }
-        for (i, arg) in dir.args.iter().enumerate() {
-          write!(w, " ")?;
-          pretty_print_operand(opts, arg, &mut w)?;
-          if i + 1 != dir.args.len() {
-            write!(w, ",")?;
-          }
-        }
-      }
-      AtomType::Instruction(ins) => {
-        print_instruction_line(opts, ins, &mut w)?;
-      }
-      AtomType::Empty => {}
-    }
-
-    if let Some(comment) = &atom.comment {
-      let spaces_needed = if w.count() == 0 {
-        0
-      } else if let Some(len) = opts.comment_justify_threshold {
-        if len >= w.count() + 2 {
-          len - w.count()
-        } else {
-          2
-        }
-      } else {
-        2
-      };
-
-      for _ in 0..spaces_needed {
-        write!(w, " ")?;
-      }
-      write!(w, "{}", comment.text)?;
-    }
-
-    let needs_newline =
-      opts.force_newlines || atom.has_newline || atom.comment.is_some();
-    if needs_newline {
-      writeln!(w, "")?;
-      w.reset_count();
-    }
-  }
-
-  Ok(())
+/// This trait is *somewhat* like `Display`, that allows threading through an
+/// `Options`.
+pub trait Format {
+  /// Formats `self`, using `options`.
+  fn fmt<W: fmt::Write>(
+    &self,
+    opts: Options,
+    w: &mut ByteCounter<W>,
+  ) -> fmt::Result;
 }
 
-fn print_instruction_line(
-  opts: &Options,
-  inst: &Code,
-  mut w: &mut ByteCounter<impl io::Write>,
-) -> io::Result<()> {
-  let on_margin = w.count() == 0;
-  if on_margin {
-    for _ in 0..opts.instruction_indent {
-      write!(w, " ")?;
+/// A helper type for taking a type which implements `Format` and making it
+/// usable with format strings.
+pub struct Display<'a, T> {
+  value: &'a T,
+  options: Options,
+}
+
+impl<'a, T> Display<'a, T> {
+  /// Creates a new `Display` for `value`, with default options.
+  pub fn new(value: &'a T) -> Self {
+    Self {
+      value,
+      options: Options::default(),
     }
-  } else {
-    write!(w, " ")?;
-  }
-  write!(w, "{}", inst.mnemonic.name())?;
-  match inst.width {
-    Some(width) => write!(w, ".{:<3}", width)?,
-    None => write!(w, "    ")?,
   }
 
-  if inst.addr.is_some() {
-    if on_margin && opts.instruction_indent != 0 {
-      write!(w, " ")?;
-      // Round the count so far up to the indent width.
-      while w.count() % opts.instruction_indent != 0 {
-        write!(w, " ")?;
+  /// Replaces the current `Options` with the given `options`.
+  pub fn with(mut self, options: Options) -> Self {
+    self.options = options;
+    self
+  }
+}
+
+impl<T: Format> fmt::Display for Display<'_, T> {
+  #[inline]
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    Format::fmt(self.value, self.options, &mut ByteCounter::new(f))
+  }
+}
+
+macro_rules! impl_display {
+  ($ty:ty) => {
+    impl std::fmt::Display for $ty {
+      #[inline]
+      fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        std::fmt::Display::fmt(&$crate::syn::fmt::Display::new(self), f)
       }
-    } else {
-      write!(w, " ")?;
     }
-  }
-
-  match &inst.addr {
-    Some(AddrExpr::Acc) => {
-      write!(w, "a")?;
-    }
-    Some(AddrExpr::Imm(a)) => {
-      write!(w, "#")?;
-      pretty_print_operand(opts, a, &mut w)?;
-    }
-    Some(AddrExpr::Abs(a)) => {
-      pretty_print_operand(opts, a, &mut w)?;
-    }
-    Some(AddrExpr::Idx(a, x)) => {
-      pretty_print_operand(opts, a, &mut w)?;
-      write!(w, ", {}", x.name())?;
-    }
-    Some(AddrExpr::Ind(a)) => {
-      write!(w, "(")?;
-      pretty_print_operand(opts, a, &mut w)?;
-      write!(w, ")")?;
-    }
-    Some(AddrExpr::IdxInd(a, x)) => {
-      write!(w, "(")?;
-      pretty_print_operand(opts, a, &mut w)?;
-      write!(w, ", {})", x.name())?;
-    }
-    Some(AddrExpr::IndIdx(a, x)) => {
-      write!(w, "(")?;
-      pretty_print_operand(opts, a, &mut w)?;
-      write!(w, "), {}", x.name())?;
-    }
-    Some(AddrExpr::IdxIndIdx(a, x, y)) => {
-      write!(w, "(")?;
-      pretty_print_operand(opts, a, &mut w)?;
-      write!(w, ", {}), {}", x.name(), y.name())?;
-    }
-    Some(AddrExpr::LongInd(a)) => {
-      write!(w, "[")?;
-      pretty_print_operand(opts, a, &mut w)?;
-      write!(w, "]")?;
-    }
-    Some(AddrExpr::LongIndIdx(a, x)) => {
-      write!(w, "[")?;
-      pretty_print_operand(opts, a, &mut w)?;
-      write!(w, "], {}", x.name())?;
-    }
-    Some(AddrExpr::Move(a, b)) => {
-      pretty_print_operand(opts, a, &mut w)?;
-      write!(w, ", ")?;
-      pretty_print_operand(opts, b, &mut w)?;
-    }
-    None => {}
-  }
-  Ok(())
+  };
 }
 
 /// Prints out an `Instruction` using the given options.
 ///
 /// See [`Options`](struct.Options.html) for more details.
 pub fn print_instruction(
-  opts: &Options,
+  opts: Options,
   inst: Instruction,
-  w: impl io::Write,
+  mut w: impl io::Write,
 ) -> io::Result<()> {
   let line = Code {
     mnemonic: inst.mnemonic(),
@@ -240,53 +131,43 @@ pub fn print_instruction(
         .unwrap()
     }),
   };
-  print_instruction_line(opts, &line, &mut ByteCounter::new(w))
+  write!(w, "{}", Display::new(&line).with(opts))
 }
 
-fn pretty_print_operand(
-  _: &Options,
-  op: &Operand,
-  w: &mut impl io::Write,
-) -> io::Result<()> {
-  match op {
-    Operand::Int(i) => write!(w, "{}", i),
-    Operand::Symbol(s) => write!(w, "{}", s),
-    Operand::Local(l) => write!(w, "{}", l),
-    Operand::String(..) => unreachable!(),
-  }
-}
-
-/// Helper for wrapping a `Write`, which keeps track of the total number of
+/// Helper for wrapping a `fmt::Write`, which keeps track of the total number of
 /// bytes written.
-struct ByteCounter<W> {
+pub struct ByteCounter<W> {
   w: W,
   count: usize,
 }
 
-impl<'a, W: io::Write> ByteCounter<W> {
-  fn new(w: W) -> Self {
+impl<W> ByteCounter<W> {
+  /// Creates a new `ByteCounter`.
+  pub fn new(w: W) -> Self {
     Self { w, count: 0 }
   }
 
   /// Resets the counter.
-  fn reset_count(&mut self) {
+  pub fn reset_count(&mut self) {
     self.count = 0;
   }
 
   /// Gets the number of bytes written so far.
-  fn count(&self) -> usize {
+  pub fn count(&self) -> usize {
     self.count
   }
 }
 
-impl<W: io::Write> io::Write for ByteCounter<W> {
-  fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-    let len = self.w.write(buf)?;
-    self.count += len;
-    Ok(len)
+impl<W: fmt::Write> ByteCounter<W> {
+  #[doc(hidden)]
+  pub fn write_fmt(&mut self, args: fmt::Arguments) -> fmt::Result {
+    fmt::Write::write_fmt(self, args)
   }
+}
 
-  fn flush(&mut self) -> io::Result<()> {
-    self.w.flush()
+impl<W: fmt::Write> fmt::Write for ByteCounter<W> {
+  fn write_str(&mut self, s: &str) -> fmt::Result {
+    self.count += s.len();
+    self.w.write_str(s)
   }
 }

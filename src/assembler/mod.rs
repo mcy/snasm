@@ -87,7 +87,7 @@ impl<'asm> Object<'asm> {
             }
             if let Ok(instruction) = Instruction::read(&block.data[start..]) {
               fmt::print_instruction(
-                &fmt::Options::default(),
+                fmt::Options::default(),
                 instruction,
                 &mut w,
               )?

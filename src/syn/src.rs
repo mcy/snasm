@@ -3,6 +3,9 @@
 use std::fmt;
 
 use crate::syn::atom::Atom;
+use crate::syn::fmt::ByteCounter;
+use crate::syn::fmt::Format;
+use crate::syn::fmt::Options;
 use crate::syn::parse;
 use crate::syn::parse::PestSpan;
 
@@ -34,6 +37,20 @@ pub struct Source<'asm> {
   /// The atoms that make up this file.
   pub(in crate::syn) atoms: Vec<Atom<'asm>>,
 }
+
+impl Format for Source<'_> {
+  fn fmt<W: fmt::Write>(
+    &self,
+    opts: Options,
+    w: &mut ByteCounter<W>,
+  ) -> fmt::Result {
+    for atom in self {
+      atom.fmt(opts, w)?;
+    }
+    Ok(())
+  }
+}
+impl_display!(Source<'_>);
 
 impl<'asm> Source<'asm> {
   /// Parses a source file out of `text`, giving it the given `name`.

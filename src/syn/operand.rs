@@ -2,7 +2,40 @@
 
 use std::fmt;
 
+use crate::syn::fmt::ByteCounter;
+use crate::syn::fmt::Format;
+use crate::syn::fmt::Options;
 use crate::syn::int::IntLit;
+
+/// An operand, which can be used with a directive or an instruction.
+#[derive(Clone, Debug)]
+pub enum Operand<'asm> {
+  /// A literal integer operand.
+  Int(IntLit),
+  /// A string operand.
+  String(&'asm str),
+  /// A symbol operand, which needs to be resolved against the symbol
+  /// table.
+  Symbol(Symbol<'asm>),
+  /// A local label reference, like `1f` or `2b`.
+  Local(LocalLabel),
+}
+
+impl Format for Operand<'_> {
+  fn fmt<W: fmt::Write>(
+    &self,
+    opts: Options,
+    w: &mut ByteCounter<W>,
+  ) -> fmt::Result {
+    match self {
+      Operand::Int(i) => i.fmt(opts, w),
+      Operand::Symbol(s) => write!(w, "{}", s),
+      Operand::Local(l) => write!(w, "{}", l),
+      Operand::String(..) => unreachable!(),
+    }
+  }
+}
+impl_display!(Operand<'_>);
 
 /// A symbol, a generic identifier.
 ///
@@ -18,20 +51,6 @@ impl fmt::Display for Symbol<'_> {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     fmt::Display::fmt(self.name, f)
   }
-}
-
-/// An operand, which can be used with a directive or an instruction.
-#[derive(Clone, Debug)]
-pub enum Operand<'asm> {
-  /// A literal integer operand.
-  Int(IntLit),
-  /// A string operand.
-  String(&'asm str),
-  /// A symbol operand, which needs to be resolved against the symbol
-  /// table.
-  Symbol(Symbol<'asm>),
-  /// A local label reference, like `1f` or `2b`.
-  Local(LocalLabel),
 }
 
 /// A local label reference, e.g., `1f`.

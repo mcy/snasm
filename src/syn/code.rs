@@ -42,8 +42,14 @@
 //! [`Code`]: struct.Code.html
 //! [`AddrExpr`]: enum.AddrExpr.html
 
+use std::fmt;
+
 use crate::int::Width;
 use crate::isa::Mnemonic;
+use crate::syn::fmt::ByteCounter;
+use crate::syn::fmt::Display;
+use crate::syn::fmt::Format;
+use crate::syn::fmt::Options;
 use crate::syn::operand::Operand;
 
 /// An unassembled instruction.
@@ -61,6 +67,43 @@ pub struct Code<'asm> {
   /// The addressing mode and operand for the instruction.
   pub addr: Option<AddrExpr<Operand<'asm>>>,
 }
+
+impl Format for Code<'_> {
+  fn fmt<W: fmt::Write>(
+    &self,
+    opts: Options,
+    w: &mut ByteCounter<W>,
+  ) -> fmt::Result {
+    let on_margin = w.count() == 0;
+    if on_margin {
+      for _ in 0..opts.instruction_indent {
+        write!(w, " ")?;
+      }
+    } else {
+      write!(w, " ")?;
+    }
+    write!(w, "{}", self.mnemonic.name())?;
+    match self.width {
+      Some(width) => write!(w, ".{:<3}", width)?,
+      None => write!(w, "    ")?,
+    }
+
+    if self.addr.is_some() {
+      if on_margin && opts.instruction_indent != 0 {
+        write!(w, " ")?;
+        // Round the count so far up to the indent width.
+        while w.count() % opts.instruction_indent != 0 {
+          write!(w, " ")?;
+        }
+      } else {
+        write!(w, " ")?;
+      }
+    }
+    self.addr.as_ref().map(|a| a.fmt(opts, w)).transpose()?;
+    Ok(())
+  }
+}
+impl_display!(Code<'_>);
 
 /// A "address expression", encompassing all of the syntactic variations
 /// of addressing modes.
@@ -144,6 +187,69 @@ impl<Arg> AddrExpr<Arg> {
   }
 }
 
+impl<Arg: Format> Format for AddrExpr<Arg> {
+  fn fmt<W: fmt::Write>(
+    &self,
+    opts: Options,
+    w: &mut ByteCounter<W>,
+  ) -> fmt::Result {
+    match self {
+      Self::Acc => write!(w, "a"),
+      Self::Imm(a) => {
+        write!(w, "#")?;
+        a.fmt(opts, w)
+      }
+      Self::Abs(a) => a.fmt(opts, w),
+      Self::Idx(a, x) => {
+        a.fmt(opts, w)?;
+        write!(w, ", {}", x)
+      }
+      Self::Ind(a) => {
+        write!(w, "(")?;
+        a.fmt(opts, w)?;
+        write!(w, ")")
+      }
+      Self::IdxInd(a, x) => {
+        write!(w, "(")?;
+        a.fmt(opts, w)?;
+        write!(w, ", {})", x)
+      }
+      Self::IndIdx(a, x) => {
+        write!(w, "(")?;
+        a.fmt(opts, w)?;
+        write!(w, "), {}", x)
+      }
+      Self::IdxIndIdx(a, x, y) => {
+        write!(w, "(")?;
+        a.fmt(opts, w)?;
+        write!(w, ", {}), {}", x, y)
+      }
+      Self::LongInd(a) => {
+        write!(w, "[")?;
+        a.fmt(opts, w)?;
+        write!(w, "]")
+      }
+      Self::LongIndIdx(a, x) => {
+        write!(w, "[")?;
+        a.fmt(opts, w)?;
+        write!(w, "], {}", x)
+      }
+      Self::Move(a, b) => {
+        a.fmt(opts, w)?;
+        write!(w, ", ")?;
+        b.fmt(opts, w)
+      }
+    }
+  }
+}
+
+impl<Arg: Format> fmt::Display for AddrExpr<Arg> {
+  #[inline]
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fmt::Display::fmt(&Display::new(self), f)
+  }
+}
+
 /// A register that can be used in "index position".
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum IdxReg {
@@ -173,5 +279,11 @@ impl IdxReg {
       Self::Y => "y",
       Self::S => "s",
     }
+  }
+}
+
+impl fmt::Display for IdxReg {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fmt::Display::fmt(&self.name(), f)
   }
 }

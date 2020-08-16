@@ -61,8 +61,7 @@ fn main() {
 "#;
 
   let file = syn::src::Source::parse(None, asm).unwrap();
-  syn::print(&syn::fmt::Options::default(), &file, &mut std::io::stdout())
-    .unwrap();
+  println!("{}", file);
 
   let obj = match assembler::assemble(&file) {
     Ok(o) => o,

@@ -6,13 +6,13 @@
 //! Throughout this module, the `'asm` lifetime referrs to the lifetime of the
 //! file's text.
 
+#[macro_use]
+pub mod fmt;
+
 pub mod atom;
 pub mod code;
-pub mod fmt;
 pub mod int;
 pub mod operand;
 pub mod src;
 
 mod parse;
-
-pub use fmt::print;

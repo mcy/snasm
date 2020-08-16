@@ -21,7 +21,12 @@
 //! [`Comment`]: ../src/enum.Comment.html
 //! [`Source`]: ../src/enum.Source.html
 
+use std::fmt;
+
 use crate::syn::code::Code;
+use crate::syn::fmt::ByteCounter;
+use crate::syn::fmt::Format;
+use crate::syn::fmt::Options;
 use crate::syn::operand::Digit;
 use crate::syn::operand::Operand;
 use crate::syn::operand::Symbol;
@@ -45,6 +50,45 @@ pub struct Atom<'asm> {
   /// The span this atom was parsed from, if any.
   pub span: Option<Span<'asm>>,
 }
+
+impl Format for Atom<'_> {
+  fn fmt<W: fmt::Write>(
+    &self,
+    opts: Options,
+    w: &mut ByteCounter<W>,
+  ) -> fmt::Result {
+    self.inner.fmt(opts, w)?;
+
+    if let Some(comment) = &self.comment {
+      let spaces_needed = if w.count() == 0 {
+        0
+      } else if let Some(len) = opts.comment_justify_threshold {
+        if len >= w.count() + 2 {
+          len - w.count()
+        } else {
+          2
+        }
+      } else {
+        2
+      };
+
+      for _ in 0..spaces_needed {
+        write!(w, " ")?;
+      }
+      write!(w, "{}", comment.text)?;
+    }
+
+    let needs_newline =
+      opts.force_newlines || self.has_newline || self.comment.is_some();
+    if needs_newline {
+      writeln!(w, "")?;
+      w.reset_count();
+    }
+
+    Ok(())
+  }
+}
+impl_display!(Atom<'_>);
 
 /// The inner type of an [`Atom`].
 ///
@@ -70,6 +114,36 @@ pub enum AtomType<'asm> {
   Empty,
 }
 
+impl Format for AtomType<'_> {
+  fn fmt<W: fmt::Write>(
+    &self,
+    opts: Options,
+    w: &mut ByteCounter<W>,
+  ) -> fmt::Result {
+    match self {
+      AtomType::Label(sym) => {
+        if w.count() > 0 {
+          write!(w, " {}:", sym)?
+        } else {
+          write!(w, "{}:", sym)?
+        }
+      }
+      AtomType::LocalLabel(d) => {
+        if w.count() > 0 {
+          write!(w, " {}:", d)?
+        } else {
+          write!(w, "{}:", d)?
+        }
+      }
+      AtomType::Directive(dir) => dir.fmt(opts, w)?,
+      AtomType::Instruction(ins) => ins.fmt(opts, w)?,
+      AtomType::Empty => {}
+    }
+    Ok(())
+  }
+}
+impl_display!(AtomType<'_>);
+
 /// An assembler directive, which may be potentially unknown to the assembler.
 #[derive(Clone, Debug)]
 pub struct Directive<'asm> {
@@ -78,3 +152,26 @@ pub struct Directive<'asm> {
   /// The arguments for this directive.
   pub args: Vec<Operand<'asm>>,
 }
+
+impl Format for Directive<'_> {
+  fn fmt<W: fmt::Write>(
+    &self,
+    opts: Options,
+    w: &mut ByteCounter<W>,
+  ) -> fmt::Result {
+    if w.count() > 0 {
+      write!(w, " {}", self.sym)?;
+    } else {
+      write!(w, "{}", self.sym)?;
+    }
+    for (i, arg) in self.args.iter().enumerate() {
+      write!(w, " ")?;
+      arg.fmt(opts, w)?;
+      if i + 1 != self.args.len() {
+        write!(w, ",")?;
+      }
+    }
+    Ok(())
+  }
+}
+impl_display!(Directive<'_>);

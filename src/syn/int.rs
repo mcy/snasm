@@ -26,6 +26,9 @@ use std::fmt;
 
 use crate::int::Int;
 use crate::int::Width;
+use crate::syn::fmt::ByteCounter;
+use crate::syn::fmt::Format;
+use crate::syn::fmt::Options;
 
 /// An integer literal.
 ///
@@ -53,37 +56,42 @@ pub struct IntLit {
   pub style: DigitStyle,
 }
 
-impl fmt::Display for IntLit {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Format for IntLit {
+  fn fmt<W: fmt::Write>(
+    &self,
+    _: Options,
+    w: &mut ByteCounter<W>,
+  ) -> fmt::Result {
     let value = match self.unary {
       Some(Unary::Neg) => {
-        write!(f, "-")?;
+        write!(w, "-")?;
         -self.value
       }
       Some(Unary::Not) => {
-        write!(f, "!")?;
+        write!(w, "!")?;
         !self.value
       }
       None => self.value,
     };
 
     match (self.style, value) {
-      (DigitStyle::Dec, n) => write!(f, "{}", n)?,
-      (DigitStyle::Bin(PrefixStyle::Classic), n) => write!(f, "%{:b}", n)?,
-      (DigitStyle::Bin(PrefixStyle::Modern), n) => write!(f, "0b{:b}", n)?,
-      (DigitStyle::Hex(PrefixStyle::Classic), n) => write!(f, "${:x}", n)?,
-      (DigitStyle::Hex(PrefixStyle::Modern), n) => write!(f, "0x{:x}", n)?,
+      (DigitStyle::Dec, n) => write!(w, "{}", n)?,
+      (DigitStyle::Bin(PrefixStyle::Classic), n) => write!(w, "%{:b}", n)?,
+      (DigitStyle::Bin(PrefixStyle::Modern), n) => write!(w, "0b{:b}", n)?,
+      (DigitStyle::Hex(PrefixStyle::Classic), n) => write!(w, "${:x}", n)?,
+      (DigitStyle::Hex(PrefixStyle::Modern), n) => write!(w, "0x{:x}", n)?,
     }
 
     let needs_ty =
       Some(self.value.width()) != Width::smallest_for(self.value.to_u32());
     if needs_ty {
-      write!(f, "_{}", self.value.width())?
+      write!(w, "_{}", self.value.width())?
     }
 
     Ok(())
   }
 }
+impl_display!(IntLit);
 
 /// An unary operation applied to an integer literal.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
