@@ -24,8 +24,7 @@ use crate::syn::int::IntLit;
 use crate::syn::int::PrefixStyle;
 use crate::syn::int::Unary;
 use crate::syn::operand::Digit;
-use crate::syn::operand::DigitLabelRef;
-use crate::syn::operand::Direction;
+use crate::syn::operand::LocalLabel;
 use crate::syn::operand::Operand;
 use crate::syn::operand::Symbol;
 use crate::syn::src::Comment;
@@ -129,7 +128,7 @@ pub fn parse<'asm>(
           let prev = mem::replace(
             &mut prev,
             Atom {
-              inner: AtomType::DigitLabel(digit),
+              inner: AtomType::LocalLabel(digit),
               comment: None,
               has_newline: false,
               span,
@@ -366,12 +365,11 @@ fn parse_operand<'asm>(
         pos,
       })?;
       let digit = Digit::new(value).unwrap();
-      let dir = if dir == "f" {
-        Direction::Forward
+      if dir == "f" {
+        Ok(Operand::Local(LocalLabel::Forward(digit)))
       } else {
-        Direction::Backward
-      };
-      Ok(Operand::DigitLabelRef(DigitLabelRef { digit, dir }))
+        Ok(Operand::Local(LocalLabel::Backward(digit)))
+      }
     }
     _ => unreachable!(),
   }

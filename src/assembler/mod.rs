@@ -15,7 +15,7 @@ use crate::syn::atom::Directive;
 use crate::syn::code::AddrExpr;
 use crate::syn::fmt;
 use crate::syn::int::IntLit;
-use crate::syn::operand::DigitLabelRef;
+use crate::syn::operand::LocalLabel;
 use crate::syn::operand::Operand;
 use crate::syn::operand::Symbol;
 use crate::syn::src::Source;
@@ -230,8 +230,8 @@ pub enum ErrorType<'atom, 'asm> {
   Redef(Symbol<'asm>, &'atom Atom<'asm>),
   /// Indicates that symbol resolution failed.
   UndefinedSymbol(Symbol<'asm>),
-  /// Indicates that digit label resolution failed.
-  UndefinedDigitLabel(DigitLabelRef),
+  /// Indicates that local label resolution failed.
+  UndefinedLocal(LocalLabel),
   /// Indicates that the requested mnemonic, width, and addressing mode
   /// combination does not map to a real opcode.
   BadInstruction(Mnemonic, Option<AddrExpr<Int>>),
@@ -245,9 +245,9 @@ pub enum ErrorType<'atom, 'asm> {
   /// Indicates that a symbol was too far away to be reached by a `pc`-relative
   /// instruction.
   SymbolTooFar(Symbol<'asm>),
-  /// Indicates that a digit label was too far away to be reached by a
+  /// Indicates that a local label was too far away to be reached by a
   /// `pc`-relative instruction.
-  DigitTooFar(DigitLabelRef),
+  LocalTooFar(LocalLabel),
 }
 
 /// An error produced during the assembly process.
@@ -300,13 +300,13 @@ struct Reference<'atom, 'asm> {
   expected_width: Width,
   arg_idx: usize,
 
-  source: SymOrDlr<'asm>,
+  source: SymOrLocal<'asm>,
   cause: &'atom Atom<'asm>,
 }
 #[derive(Copy, Clone)]
-enum SymOrDlr<'asm> {
+enum SymOrLocal<'asm> {
   Sym(Symbol<'asm>),
-  Dlr(DigitLabelRef, usize),
+  Local(LocalLabel, usize),
 }
 
 const DEFAULT_PC: u24 = u24::from_u32(0x80_8000);
@@ -370,7 +370,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
             })
           }
         }
-        AtomType::DigitLabel(digit) => self.symbols.define_digit(
+        AtomType::LocalLabel(digit) => self.symbols.define_local(
           *digit,
           idx,
           atom,
@@ -425,8 +425,8 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
         AtomType::Label(sym) => {
           self.symbols.lookup(*sym).unwrap().1 = SymbolValue::Addr(self.pc)
         }
-        AtomType::DigitLabel(digit) => {
-          self.symbols.lookup_digit_at_def(*digit, idx).unwrap().1 =
+        AtomType::LocalLabel(digit) => {
+          self.symbols.lookup_local_at_def(*digit, idx).unwrap().1 =
             SymbolValue::Addr(self.pc)
         }
         AtomType::Directive(d) => {
@@ -537,7 +537,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
               //   In this case, we use the pc + dbr state to deduce wether the
               //   bank is implicit or not, and put in a relocation.
               // - We've never seen this symbol before. This is an error.
-              Operand::Symbol(_) | Operand::DigitLabelRef { .. } => {
+              Operand::Symbol(_) | Operand::Local(_) => {
                 let width = inst.width.map(Ok).unwrap_or_else(|| {
                   // First, we pull whatever address information we can out of
                   // the symbol table.
@@ -549,11 +549,11 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                         _ => return Err(ErrorType::UndefinedSymbol(*sym)),
                       }
                     }
-                    Operand::DigitLabelRef(dlr) => {
-                      let entry = self.symbols.lookup_digit(*dlr, idx);
+                    Operand::Local(local) => {
+                      let entry = self.symbols.lookup_local(*local, idx);
                       match entry {
                         Some((_, addr)) => *addr,
-                        _ => return Err(ErrorType::UndefinedDigitLabel(*dlr)),
+                        _ => return Err(ErrorType::UndefinedLocal(*local)),
                       }
                     }
                     _ => unreachable!(),
@@ -585,8 +585,8 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                 })?;
 
                 let reloc_source = match arg {
-                  Operand::Symbol(sym) => SymOrDlr::Sym(*sym),
-                  Operand::DigitLabelRef(dlr) => SymOrDlr::Dlr(*dlr, idx),
+                  Operand::Symbol(sym) => SymOrLocal::Sym(*sym),
+                  Operand::Local(local) => SymOrLocal::Local(*local, idx),
                   _ => unreachable!(),
                 };
 
@@ -675,14 +675,14 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
         };
 
       let &mut (_, symbol_value) = match reference.source {
-        SymOrDlr::Sym(sym) => self.symbols.lookup(sym),
-        SymOrDlr::Dlr(dlr, idx) => self.symbols.lookup_digit(dlr, idx),
+        SymOrLocal::Sym(sym) => self.symbols.lookup(sym),
+        SymOrLocal::Local(local, idx) => self.symbols.lookup_local(local, idx),
       }
       .expect("all references are to valid symbols");
 
       let val = match (symbol_value, reference.source) {
         // Symbol was never completed; must be an external symbol.
-        (SymbolValue::Bank(_), SymOrDlr::Sym(sym)) => {
+        (SymbolValue::Bank(_), SymOrLocal::Sym(sym)) => {
           block.relocations.push(Relocation {
             instruction_offset: reference.instruction_offset as u16,
             destination_offset: destination_offset as u16,
@@ -691,10 +691,10 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
           });
           continue;
         }
-        // This should never happen. All digit labels should have been resolved
+        // This should never happen. All local labels should have been resolved
         // by this point.
-        (SymbolValue::Bank(_), SymOrDlr::Dlr(..)) => panic!(
-          "digit symbol reference was unresolved at the end of object assembly"
+        (SymbolValue::Bank(_), SymOrLocal::Local(..)) => panic!(
+          "local label reference was unresolved at the end of object assembly"
         ),
         (SymbolValue::Addr(addr), _) => addr,
       };
@@ -712,12 +712,12 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
             Ok(offset) => offset,
             _ => {
               match reference.source {
-                SymOrDlr::Sym(sym) => self.errors.push(Error {
+                SymOrLocal::Sym(sym) => self.errors.push(Error {
                   inner: ErrorType::SymbolTooFar(sym),
                   cause: reference.cause,
                 }),
-                SymOrDlr::Dlr(dlr, _) => self.errors.push(Error {
-                  inner: ErrorType::DigitTooFar(dlr),
+                SymOrLocal::Local(local, _) => self.errors.push(Error {
+                  inner: ErrorType::LocalTooFar(local),
                   cause: reference.cause,
                 }),
               }

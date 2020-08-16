@@ -55,7 +55,7 @@ pub enum AtomType<'asm> {
   Label(Symbol<'asm>),
 
   /// A local digit label definition: `1:`.
-  DigitLabel(Digit),
+  LocalLabel(Digit),
 
   /// A directive: `.origin $100`.
   Directive(Directive<'asm>),

@@ -10,7 +10,6 @@ use crate::syn::code::Code;
 use crate::syn::int::DigitStyle;
 use crate::syn::int::IntLit;
 use crate::syn::int::PrefixStyle;
-use crate::syn::operand::Direction;
 use crate::syn::operand::Operand;
 use crate::syn::src::Source;
 
@@ -75,7 +74,7 @@ pub fn print(opts: &Options, f: &Source, w: impl io::Write) -> io::Result<()> {
           write!(w, "{}:", sym.name)?
         }
       }
-      AtomType::DigitLabel(d) => {
+      AtomType::LocalLabel(d) => {
         if w.count() > 0 {
           write!(w, " {}:", d.into_inner())?
         } else {
@@ -252,10 +251,7 @@ fn pretty_print_operand(
   match op {
     Operand::Int(int) => write!(w, "{}", int),
     Operand::Symbol(s) => write!(w, "{}", s.name),
-    Operand::DigitLabelRef(dlr) => match dlr.dir {
-      Direction::Forward => write!(w, "{}f", dlr.digit.into_inner()),
-      Direction::Backward => write!(w, "{}b", dlr.digit.into_inner()),
-    },
+    Operand::Local(l) =>  write!(w, "{}", l),
     Operand::String(..) => unreachable!(),
   }
 }
