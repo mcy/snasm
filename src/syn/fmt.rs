@@ -109,6 +109,7 @@ pub fn print(opts: &Options, f: &File, w: impl io::Write) -> io::Result<()> {
             write!(w, " {}, ", sym.name)?;
             pretty_print_operand(opts, &Operand::Int(*bank), &mut w)?;
           }
+          DirectiveType::Global(sym) => write!(w, " {}", sym.name)?,
           DirectiveType::Data(bytes) => {
             for byte in bytes {
               write!(w, " ")?;

@@ -226,6 +226,10 @@ impl<'asm> Directive<'asm> {
         },
         _ => return None,
       },
+      ".global" => match &args[..] {
+        [Operand::Symbol(sym)] => DirectiveType::Global(*sym),
+        _ => return None,
+      },
       ".data" => {
         let mut bytes = Vec::new();
         for arg in args {
@@ -268,6 +272,10 @@ pub enum DirectiveType<'asm> {
     /// The bank, if different from the current one.
     bank: Option<IntLit>,
   },
+  /// The `.global` directive, which marks a symbol as exported from the current
+  /// file, usable in `.extern` directives elsewhere. It must appear after the
+  /// label is defined.
+  Global(Symbol<'asm>),
   /// The `.data` directive, which inserts a stream of literal data bytes.
   Data(Vec<IntLit>),
   /// The `.fill` directive, which fills a region with a specific number of

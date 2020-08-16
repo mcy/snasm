@@ -28,6 +28,7 @@ mod tables;
 /// a different 24-bit address.
 pub struct Object<'asm> {
   blocks: HashMap<u24, Block<'asm>>,
+  globals: HashMap<Symbol<'asm>, u24>,
 }
 
 impl<'asm> Object<'asm> {
@@ -35,11 +36,15 @@ impl<'asm> Object<'asm> {
   pub fn new() -> Self {
     Object {
       blocks: HashMap::new(),
+      globals: HashMap::new(),
     }
   }
 
   /// Dumps this object in the style of `objdump` to `w`.
   pub fn dump(&self, mut w: impl io::Write) -> io::Result<()> {
+    for (name, addr) in &self.globals {
+      writeln!(w, ".global {}, 0x{:06x}", name.name, addr)?;
+    }
     for (addr, block) in &self.blocks {
       writeln!(w, ".origin 0x{:06x}", addr)?;
       for i in 0..block.offsets.len() {
@@ -423,6 +428,33 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
           // and start building a new one.
           block_start = self.pc;
           self.object.blocks.insert(block_start, Block::new());
+        }
+        AtomType::Directive(Directive {
+          ty: DirectiveType::Global(sym),
+          ..
+        }) => {
+          let &mut (_, val) = match self.symbols.lookup(*sym) {
+            Some(val) => val,
+            _ => {
+              self.errors.push(Error {
+                inner: ErrorType::UndefinedSymbol(*sym),
+                cause: atom,
+              });
+              continue;
+            }
+          };
+          let addr = match val {
+            SymbolValue::Addr(addr) => addr,
+            SymbolValue::Bank(_) => {
+              self.errors.push(Error {
+                inner: ErrorType::UndefinedSymbol(*sym),
+                cause: atom,
+              });
+              continue;
+            }
+          };
+
+          self.object.globals.insert(*sym, addr);
         }
         AtomType::Directive(Directive {
           ty: DirectiveType::Data(bytes),

@@ -42,8 +42,8 @@ fn main() {
     tcs
     rtl
 
-  .data $11, $12, $13, $14, $ff, $ff, $ff, $ff, $ff, $ff,
-  .fill %10101010, 20
+  zeroes:
+  .global zeroes
   .zero $100
 
   .origin $900000
