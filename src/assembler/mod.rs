@@ -1,8 +1,6 @@
 //! The SNASM assembler, for converting assembly files into object files.
 
-use std::collections::HashMap;
 use std::convert::TryInto;
-use std::io;
 
 use crate::int::u24;
 use crate::int::Int;
@@ -13,174 +11,15 @@ use crate::syn::atom::Atom;
 use crate::syn::atom::AtomType;
 use crate::syn::atom::Directive;
 use crate::syn::code::AddrExpr;
-use crate::syn::fmt;
 use crate::syn::int::IntLit;
 use crate::syn::operand::LocalLabel;
 use crate::syn::operand::Operand;
 use crate::syn::operand::Symbol;
 use crate::syn::src::Source;
+use crate::obj::Object;
+use crate::obj::Relocation;
 
 mod tables;
-
-/// An assembled object file.
-///
-/// An `Object` is made up of a collection of `Block`s, each of which starts at
-/// a different 24-bit address.
-pub struct Object<'asm> {
-  name: Option<&'asm str>,
-  blocks: HashMap<u24, Block<'asm>>,
-  globals: Vec<(Symbol<'asm>, u24)>,
-}
-
-impl<'asm> Object<'asm> {
-  /// Creates a new, empty `Object`.
-  pub fn new(name: Option<&'asm str>) -> Self {
-    Object {
-      name,
-      blocks: HashMap::new(),
-      globals: Vec::new(),
-    }
-  }
-
-  /// Returns the name of this object, if any.
-  ///
-  /// This is the same as the name of the file that the object was assembled
-  /// from.
-  pub fn name(&self) -> Option<&'asm str> {
-    self.name
-  }
-
-  /// Returns the global symbols defined by this object.
-  ///
-  /// Each global symbol consists of a symbol name, and an address.
-  pub fn globals(&self) -> &[(Symbol<'asm>, u24)] {
-    &self.globals
-  }
-
-  /// Dumps this object in the style of `objdump` to `w`.
-  pub fn dump(&self, mut w: impl io::Write) -> io::Result<()> {
-    for (name, addr) in &self.globals {
-      writeln!(w, ".global {}, 0x{:06x}", name, addr)?;
-    }
-    for (addr, block) in &self.blocks {
-      writeln!(w, ".origin 0x{:06x}", addr)?;
-      for i in 0..block.offsets.len() {
-        let (start, ty) = block.offsets[i];
-        let end = block
-          .offsets
-          .get(i + 1)
-          .map(|(idx, _)| idx)
-          .copied()
-          .unwrap_or(block.data.len());
-
-        match ty {
-          OffsetType::Code => {
-            write!(w, "{:06x}:", addr.to_u32() + start as u32)?;
-            for j in start..end {
-              write!(w, "  {:02x}", block.data[j])?;
-            }
-
-            let expected_len = (end - start) * 4;
-            let padding = 16 - expected_len;
-            for _ in 0..padding {
-              write!(w, " ")?;
-            }
-            if let Ok(instruction) = Instruction::read(&block.data[start..]) {
-              fmt::print_instruction(
-                fmt::Options::default(),
-                instruction,
-                &mut w,
-              )?
-            }
-          }
-          OffsetType::Data => {
-            for (n, j) in (start..end).into_iter().enumerate() {
-              if n % 8 == 0 {
-                if n != 0 {
-                  writeln!(w, "")?;
-                }
-                write!(w, "{:06x}:", addr.to_u32() + start as u32 + n as u32)?;
-              }
-              write!(w, "  {:02x}", block.data[j])?;
-            }
-          }
-        }
-        writeln!(w, "")?;
-      }
-
-      for relocation in &block.relocations {
-        writeln!(
-          w,
-          ".reloc.{} 0x{:04x} {}",
-          relocation.destination_width,
-          relocation.instruction_offset,
-          relocation.source
-        )?;
-      }
-      writeln!(w, "")?;
-    }
-
-    Ok(())
-  }
-}
-
-/// A block of assembled data.
-///
-/// A `Block` is a chunk of assmbled data, potentially requiring relocations
-/// to be complete. Each `Block` roughly corresponds to an `.origin` directive.
-pub struct Block<'asm> {
-  data: Vec<u8>,
-  offsets: Vec<(usize, OffsetType)>,
-  relocations: Vec<Relocation<'asm>>,
-}
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-enum OffsetType {
-  Code,
-  Data,
-}
-
-impl<'asm> Block<'asm> {
-  /// Creates a new, empty `Block`.
-  pub fn new() -> Self {
-    Block {
-      data: Vec::new(),
-      offsets: Vec::new(),
-      relocations: Vec::new(),
-    }
-  }
-
-  /// Marks the next index as the begining of an instruction.
-  fn begin_code_offset(&mut self) {
-    self.offsets.push((self.data.len(), OffsetType::Code))
-  }
-
-  /// Marks the next index as the begining of an instruction.
-  fn begin_data_offset(&mut self) {
-    self.offsets.push((self.data.len(), OffsetType::Data))
-  }
-
-  /// Returns the length of this block.
-  fn len(&self) -> usize {
-    self.data.len()
-  }
-}
-
-/// A relocation for a missing symbol.
-///
-/// A `Relocation` describes information that's missing from an assembled
-/// `Block`, which can be filled in by a linker.
-pub struct Relocation<'asm> {
-  /// An offset into the containing block indicating where the instruction
-  /// targeted by this relocation is located.
-  pub instruction_offset: u16,
-  /// An offset into the containing block poing to the exact place where the
-  /// symbol value needs to be written.
-  pub destination_offset: u16,
-  /// The width of the destination: how many bytes need to be actually written.
-  pub destination_width: Width,
-  /// The symbol that is needed to resolve this relocation.
-  pub source: Symbol<'asm>,
-}
 
 /// Assembles the given assembly file.
 ///
@@ -418,7 +257,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
   /// resolved into relocations later on.
   fn naive_assemble(&mut self) {
     let mut block_start = self.pc;
-    self.object.blocks.insert(block_start, Block::new());
+    self.object.new_block(block_start);
 
     for (idx, atom) in self.src.iter().enumerate() {
       match &atom.inner {
@@ -447,7 +286,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
               // Because we've moved the program counter, we need to dump this block
               // and start building a new one.
               block_start = self.pc;
-              self.object.blocks.insert(block_start, Block::new());
+              self.object.new_block(block_start);
             }
             DirectiveType::Extern { .. } => {}
             DirectiveType::Global(sym) => {
@@ -472,7 +311,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                 }
               };
 
-              self.object.globals.push((sym, addr));
+              self.object.define_global(sym, addr);
             }
             DirectiveType::Bank(dbr_state) => self.dbr_state = dbr_state,
             DirectiveType::Data { count, values } => {
@@ -485,8 +324,8 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                 &values[..]
               };
 
-              let block = self.object.blocks.get_mut(&block_start).unwrap();
-              block.begin_data_offset();
+              let block = self.object.get_block_mut(block_start).unwrap();
+              let mut data = block.begin_data_offset();
               for _ in 0..count {
                 for val in values {
                   let len = val.width().bytes() as u16;
@@ -501,7 +340,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                       0u16
                     }
                   };
-                  let _ = val.write_le(&mut block.data);
+                  let _ = val.write_le(&mut data);
                 }
               }
             }
@@ -591,7 +430,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                 };
 
                 // Now, let's register a reference for this label.
-                let block = &self.object.blocks[&block_start];
+                let block = self.object.get_block(block_start).unwrap();
                 self.references.push(Reference {
                   block_id: block_start,
                   instruction_offset: block.len(),
@@ -643,9 +482,8 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
               }
             };
 
-          let block = self.object.blocks.get_mut(&block_start).unwrap();
-          block.begin_code_offset();
-          let _ = instruction.write(&mut block.data);
+          let block = self.object.get_block_mut(block_start).unwrap();
+          let _ = instruction.write(block.begin_code_offset());
         }
         AtomType::Empty => continue,
       }
@@ -656,8 +494,8 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
   /// filling in data or by emitting relocations.
   fn resolve_references(&mut self) {
     for reference in &self.references {
-      let block = self.object.blocks.get_mut(&reference.block_id).unwrap();
-      let inst_buf = &mut block.data[reference.instruction_offset..];
+      let block = self.object.get_block_mut(reference.block_id).unwrap();
+      let inst_buf = &mut block.data_mut()[reference.instruction_offset..];
       let inst = Instruction::read(&*inst_buf).unwrap();
 
       // Every single operand is immediately after the first byte of the
@@ -683,7 +521,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
       let val = match (symbol_value, reference.source) {
         // Symbol was never completed; must be an external symbol.
         (SymbolValue::Bank(_), SymOrLocal::Sym(sym)) => {
-          block.relocations.push(Relocation {
+          block.add_relocation(Relocation {
             instruction_offset: reference.instruction_offset as u16,
             destination_offset: destination_offset as u16,
             destination_width: reference.expected_width,
@@ -735,7 +573,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
       // necessary and write it to the destination.
       let int = Int::new(val.to_u32(), reference.expected_width);
       int
-        .write_le(&mut block.data[destination_offset..])
+        .write_le(&mut block.data_mut()[destination_offset..])
         .expect("the space being overwritten should already be zeroed")
     }
   }

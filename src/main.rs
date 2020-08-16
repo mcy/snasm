@@ -11,6 +11,7 @@ pub mod int;
 pub mod isa;
 pub mod rom;
 pub mod syn;
+pub mod obj;
 
 fn main() {
   let asm = r#"
