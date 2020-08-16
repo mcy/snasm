@@ -16,9 +16,9 @@ use crate::syn::AtomType;
 use crate::syn::DigitLabelRef;
 use crate::syn::Directive;
 use crate::syn::File;
+use crate::syn::IntLit;
 use crate::syn::Operand;
 use crate::syn::Symbol;
-use crate::syn::IntLit;
 
 mod tables;
 
@@ -385,7 +385,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                 inner: ErrorType::BadDirective,
                 cause: atom,
               });
-              continue
+              continue;
             }
           };
 
@@ -437,10 +437,10 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                 inner: ErrorType::BadDirective,
                 cause: atom,
               });
-              continue
+              continue;
             }
           };
-          
+
           match dir_ty {
             DirectiveType::Origin(value) => {
               self.pc = value;
@@ -448,7 +448,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
               // and start building a new one.
               block_start = self.pc;
               self.object.blocks.insert(block_start, Block::new());
-            },
+            }
             DirectiveType::Extern { .. } => {}
             DirectiveType::Global(sym) => {
               let &mut (_, val) = match self.symbols.lookup(sym) {
@@ -474,11 +474,16 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
 
               self.object.globals.push((sym, addr));
             }
+            DirectiveType::Bank(dbr_state) => self.dbr_state = dbr_state,
             DirectiveType::Data { count, values } => {
               if count == 0 {
                 continue;
               }
-              let values = if values.is_empty() { &[Int::I8(0)][..] } else { &values[..] };
+              let values = if values.is_empty() {
+                &[Int::I8(0)][..]
+              } else {
+                &values[..]
+              };
 
               let block = self.object.blocks.get_mut(&block_start).unwrap();
               block.begin_data_offset();
@@ -736,7 +741,6 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
 }
 
 /// A directive type, indicating a well-known assembler directive.
-#[derive(Clone, Debug)]
 enum DirectiveType<'asm> {
   /// The `.origin` directive, indicating to the assembler that the program
   /// counter should unconditionally jump to the given argument.
@@ -754,6 +758,9 @@ enum DirectiveType<'asm> {
   /// file, usable in `.extern` directives elsewhere. It must appear after the
   /// label is defined.
   Global(Symbol<'asm>),
+  /// The `.bank auto` directive, which changes the DBR state known to the
+  /// assembler.
+  Bank(DbrState),
   /// A generic directive for emitting straight literal data. `.data`, `.fill`,
   /// and `.zero` are sugar for this directive.
   Data {
@@ -775,8 +782,9 @@ impl<'asm> DirectiveType<'asm> {
     let name = dir.sym.name.to_lowercase();
     let dir = match name.as_str() {
       ".origin" | ".org" => match &dir.args[..] {
-        [Operand::Int(int)] =>
-          DirectiveType::Origin(u24::from_u32(int.value.to_u32())),
+        [Operand::Int(int)] => {
+          DirectiveType::Origin(u24::from_u32(int.value.to_u32()))
+        }
         _ => return None,
       },
       ".extern" => match &dir.args[..] {
@@ -784,10 +792,27 @@ impl<'asm> DirectiveType<'asm> {
           sym: *sym,
           bank: None,
         },
-        [Operand::Symbol(sym), Operand::Int(IntLit { value: Int::I8(bank), .. })] => DirectiveType::Extern {
+        [Operand::Symbol(sym), Operand::Int(IntLit {
+          value: Int::I8(bank),
+          ..
+        })] => DirectiveType::Extern {
           sym: *sym,
           bank: Some(*bank),
         },
+        _ => return None,
+      },
+      ".bank" => match &dir.args[..] {
+        [Operand::Symbol(Symbol { name, .. })] => match *name {
+          "auto" | "pc" => DirectiveType::Bank(DbrState::Pc),
+          "no_assume" | "else" | "unknown" => {
+            DirectiveType::Bank(DbrState::Else)
+          }
+          _ => return None,
+        },
+        [Operand::Int(IntLit {
+          value: Int::I8(bank),
+          ..
+        })] => DirectiveType::Bank(DbrState::Fixed(*bank)),
         _ => return None,
       },
       ".global" | ".globl" => match &dir.args[..] {
@@ -797,7 +822,7 @@ impl<'asm> DirectiveType<'asm> {
       ".data" | ".fill" | ".skip" | ".space" | ".zero" => {
         let mut args = &dir.args[..];
         if args.is_empty() {
-          return None
+          return None;
         }
 
         let count = if name == ".data" {
@@ -807,12 +832,12 @@ impl<'asm> DirectiveType<'asm> {
             args = &args[1..];
             int.value.to_u32() as usize
           } else {
-            return None
+            return None;
           }
         };
 
         if name == ".zero" && args.len() != 0 {
-          return None
+          return None;
         }
 
         let mut values = Vec::new();
@@ -822,11 +847,8 @@ impl<'asm> DirectiveType<'asm> {
             _ => return None,
           }
         }
-        DirectiveType::Data {
-          count,
-          values,
-        }
-      },
+        DirectiveType::Data { count, values }
+      }
       _ => return None,
     };
     Some(dir)
