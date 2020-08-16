@@ -9,7 +9,6 @@ use crate::syn::AddrExpr;
 use crate::syn::AtomType;
 use crate::syn::DigitStyle;
 use crate::syn::Direction;
-use crate::syn::DirectiveType;
 use crate::syn::File;
 use crate::syn::InstructionLine;
 use crate::syn::IntLit;
@@ -93,48 +92,11 @@ pub fn print(opts: &Options, f: &File, w: impl io::Write) -> io::Result<()> {
         } else {
           write!(w, "{}", dir.sym.name)?;
         }
-
-        match &dir.ty {
-          DirectiveType::Origin(int) => {
-            write!(w, " ")?;
-            pretty_print_operand(opts, &Operand::Int(*int), &mut w)?;
-          }
-          DirectiveType::Extern { sym, bank: None } => {
-            write!(w, " {}", sym.name)?
-          }
-          DirectiveType::Extern {
-            sym,
-            bank: Some(bank),
-          } => {
-            write!(w, " {}, ", sym.name)?;
-            pretty_print_operand(opts, &Operand::Int(*bank), &mut w)?;
-          }
-          DirectiveType::Global(sym) => write!(w, " {}", sym.name)?,
-          DirectiveType::Data(bytes) => {
-            for byte in bytes {
-              write!(w, " ")?;
-              pretty_print_operand(opts, &Operand::Int(*byte), &mut w)?;
-              write!(w, ",")?;
-            }
-          }
-          DirectiveType::Fill { value, count } => {
-            write!(w, " ")?;
-            pretty_print_operand(opts, &Operand::Int(*value), &mut w)?;
-            write!(w, ", ")?;
-            pretty_print_operand(opts, &Operand::Int(*count), &mut w)?;
-          }
-          DirectiveType::Zero(count) => {
-            write!(w, " ")?;
-            pretty_print_operand(opts, &Operand::Int(*count), &mut w)?;
-          }
-          DirectiveType::Unknown(args) => {
-            for (i, arg) in args.iter().enumerate() {
-              write!(w, " ")?;
-              pretty_print_operand(opts, arg, &mut w)?;
-              if i + 1 != args.len() {
-                write!(w, ",")?;
-              }
-            }
+        for (i, arg) in dir.args.iter().enumerate() {
+          write!(w, " ")?;
+          pretty_print_operand(opts, arg, &mut w)?;
+          if i + 1 != dir.args.len() {
+            write!(w, ",")?;
           }
         }
       }

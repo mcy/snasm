@@ -15,10 +15,10 @@ use crate::syn::Atom;
 use crate::syn::AtomType;
 use crate::syn::DigitLabelRef;
 use crate::syn::Directive;
-use crate::syn::DirectiveType;
 use crate::syn::File;
 use crate::syn::Operand;
 use crate::syn::Symbol;
+use crate::syn::IntLit;
 
 mod tables;
 
@@ -27,17 +27,34 @@ mod tables;
 /// An `Object` is made up of a collection of `Block`s, each of which starts at
 /// a different 24-bit address.
 pub struct Object<'asm> {
+  name: Option<&'asm str>,
   blocks: HashMap<u24, Block<'asm>>,
-  globals: HashMap<Symbol<'asm>, u24>,
+  globals: Vec<(Symbol<'asm>, u24)>,
 }
 
 impl<'asm> Object<'asm> {
   /// Creates a new, empty `Object`.
-  pub fn new() -> Self {
+  pub fn new(name: Option<&'asm str>) -> Self {
     Object {
+      name,
       blocks: HashMap::new(),
-      globals: HashMap::new(),
+      globals: Vec::new(),
     }
+  }
+
+  /// Returns the name of this object, if any.
+  ///
+  /// This is the same as the name of the file that the object was assembled
+  /// from.
+  pub fn name(&self) -> Option<&'asm str> {
+    self.name
+  }
+
+  /// Returns the global symbols defined by this object.
+  ///
+  /// Each global symbol consists of a symbol name, and an address.
+  pub fn globals(&self) -> &[(Symbol<'asm>, u24)] {
+    &self.globals
   }
 
   /// Dumps this object in the style of `objdump` to `w`.
@@ -220,6 +237,8 @@ pub enum ErrorType<'atom, 'asm> {
   BadInstruction(Mnemonic, Option<AddrExpr<Int>>),
   /// Indicates that an integer is not of an appropriate width.
   BadIntType,
+  /// Indicates failure to correctly parse some directive.
+  BadDirective,
   /// Indicates that an instruction or directive was caught overflowing the
   /// current program bank.
   BankCrossing,
@@ -296,7 +315,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
   fn new(file: &'atom File<'asm>) -> Self {
     Self {
       file,
-      object: Object::new(),
+      object: Object::new(file.name),
 
       pc: DEFAULT_PC,
       dbr_state: DbrState::Pc,
@@ -338,59 +357,53 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
   /// directives.
   fn init_symbol_bank_table(&mut self) {
     for (idx, atom) in self.file.atoms.iter().enumerate() {
-      match atom.inner {
+      match &atom.inner {
         AtomType::Label(sym) => {
           if let Err(old) =
             self
               .symbols
-              .define(sym, atom, SymbolValue::Bank(self.pc.bank))
+              .define(*sym, atom, SymbolValue::Bank(self.pc.bank))
           {
             self.errors.push(Error {
-              inner: ErrorType::Redef(sym, old),
+              inner: ErrorType::Redef(*sym, old),
               cause: atom,
             })
           }
         }
         AtomType::DigitLabel(digit) => self.symbols.define_digit(
-          digit,
+          *digit,
           idx,
           atom,
           SymbolValue::Bank(self.pc.bank),
         ),
 
-        AtomType::Directive(Directive {
-          ty: DirectiveType::Origin(int),
-          ..
-        }) => {
-          let value = u24::from_u32(int.value.to_u32());
-          self.pc = value;
-        }
-
-        AtomType::Directive(Directive {
-          ty: DirectiveType::Extern { sym, bank },
-          ..
-        }) => {
-          let bank = match bank {
-            Some(int) => match int.value {
-              Int::I8(bank) => bank,
-              _ => {
-                self.errors.push(Error {
-                  inner: ErrorType::BadIntType,
-                  cause: atom,
-                });
-                continue;
-              }
-            },
-            None => self.pc.bank,
+        AtomType::Directive(d) => {
+          let dir_ty = match DirectiveType::from_syn(d) {
+            Some(d) => d,
+            _ => {
+              self.errors.push(Error {
+                inner: ErrorType::BadDirective,
+                cause: atom,
+              });
+              continue
+            }
           };
 
-          if let Err(old) =
-            self.symbols.define(sym, atom, SymbolValue::Bank(bank))
-          {
-            self.errors.push(Error {
-              inner: ErrorType::Redef(sym, old),
-              cause: atom,
-            })
+          match dir_ty {
+            DirectiveType::Origin(value) => self.pc = value,
+            DirectiveType::Extern { sym, bank } => {
+              let bank = bank.unwrap_or(self.pc.bank);
+
+              if let Err(old) =
+                self.symbols.define(sym, atom, SymbolValue::Bank(bank))
+              {
+                self.errors.push(Error {
+                  inner: ErrorType::Redef(sym, old),
+                  cause: atom,
+                })
+              }
+            }
+            _ => {}
           }
         }
         _ => continue,
@@ -407,7 +420,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
     let mut block_start = self.pc;
     self.object.blocks.insert(block_start, Block::new());
 
-    'atoms: for (idx, atom) in self.file.atoms.iter().enumerate() {
+    for (idx, atom) in self.file.atoms.iter().enumerate() {
       match &atom.inner {
         AtomType::Label(sym) => {
           self.symbols.lookup(*sym).unwrap().1 = SymbolValue::Addr(self.pc)
@@ -416,141 +429,79 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
           self.symbols.lookup_digit_at_def(*digit, idx).unwrap().1 =
             SymbolValue::Addr(self.pc)
         }
-
-        AtomType::Directive(Directive {
-          ty: DirectiveType::Origin(int),
-          ..
-        }) => {
-          let value = u24::from_u32(int.value.to_u32());
-          self.pc = value;
-
-          // Because we've moved the program counter, we need to dump this block
-          // and start building a new one.
-          block_start = self.pc;
-          self.object.blocks.insert(block_start, Block::new());
-        }
-        AtomType::Directive(Directive {
-          ty: DirectiveType::Global(sym),
-          ..
-        }) => {
-          let &mut (_, val) = match self.symbols.lookup(*sym) {
-            Some(val) => val,
+        AtomType::Directive(d) => {
+          let dir_ty = match DirectiveType::from_syn(&d) {
+            Some(d) => d,
             _ => {
               self.errors.push(Error {
-                inner: ErrorType::UndefinedSymbol(*sym),
+                inner: ErrorType::BadDirective,
                 cause: atom,
               });
-              continue;
+              continue
             }
           };
-          let addr = match val {
-            SymbolValue::Addr(addr) => addr,
-            SymbolValue::Bank(_) => {
-              self.errors.push(Error {
-                inner: ErrorType::UndefinedSymbol(*sym),
-                cause: atom,
-              });
-              continue;
+          
+          match dir_ty {
+            DirectiveType::Origin(value) => {
+              self.pc = value;
+              // Because we've moved the program counter, we need to dump this block
+              // and start building a new one.
+              block_start = self.pc;
+              self.object.blocks.insert(block_start, Block::new());
+            },
+            DirectiveType::Extern { .. } => {}
+            DirectiveType::Global(sym) => {
+              let &mut (_, val) = match self.symbols.lookup(sym) {
+                Some(val) => val,
+                _ => {
+                  self.errors.push(Error {
+                    inner: ErrorType::UndefinedSymbol(sym),
+                    cause: atom,
+                  });
+                  continue;
+                }
+              };
+              let addr = match val {
+                SymbolValue::Addr(addr) => addr,
+                SymbolValue::Bank(_) => {
+                  self.errors.push(Error {
+                    inner: ErrorType::UndefinedSymbol(sym),
+                    cause: atom,
+                  });
+                  continue;
+                }
+              };
+
+              self.object.globals.push((sym, addr));
             }
-          };
-
-          self.object.globals.insert(*sym, addr);
-        }
-        AtomType::Directive(Directive {
-          ty: DirectiveType::Data(bytes),
-          ..
-        }) => {
-          if bytes.is_empty() {
-            continue;
-          }
-          let block = self.object.blocks.get_mut(&block_start).unwrap();
-          block.begin_data_offset();
-          for byte in bytes {
-            let value = match byte.value {
-              Int::I8(n) => n,
-              _ => {
-                self.errors.push(Error {
-                  inner: ErrorType::BadIntType,
-                  cause: atom,
-                });
-                continue 'atoms;
+            DirectiveType::Data { count, values } => {
+              if count == 0 {
+                continue;
               }
-            };
+              let values = if values.is_empty() { &[Int::I8(0)][..] } else { &values[..] };
 
-            self.pc.addr = match self.pc.addr.checked_add(1) {
-              Some(n) => n,
-              None => {
-                self.errors.push(Error {
-                  inner: ErrorType::BankCrossing,
-                  cause: atom,
-                });
-                0u16
+              let block = self.object.blocks.get_mut(&block_start).unwrap();
+              block.begin_data_offset();
+              for _ in 0..count {
+                for val in values {
+                  let len = val.width().bytes() as u16;
+
+                  self.pc.addr = match self.pc.addr.checked_add(len) {
+                    Some(n) => n,
+                    None => {
+                      self.errors.push(Error {
+                        inner: ErrorType::BankCrossing,
+                        cause: atom,
+                      });
+                      0u16
+                    }
+                  };
+                  let _ = val.write_le(&mut block.data);
+                }
               }
-            };
-            block.data.push(value);
-          }
-        }
-        AtomType::Directive(Directive {
-          ty: DirectiveType::Fill { value, count },
-          ..
-        }) => {
-          let count = count.value.to_u32();
-          if count == 0 {
-            continue;
-          }
-          let value = match value.value {
-            Int::I8(n) => n,
-            _ => {
-              self.errors.push(Error {
-                inner: ErrorType::BadIntType,
-                cause: atom,
-              });
-              continue 'atoms;
             }
-          };
-
-          let block = self.object.blocks.get_mut(&block_start).unwrap();
-          block.begin_data_offset();
-          for _ in 0..count {
-            self.pc.addr = match self.pc.addr.checked_add(1) {
-              Some(n) => n,
-              None => {
-                self.errors.push(Error {
-                  inner: ErrorType::BankCrossing,
-                  cause: atom,
-                });
-                0u16
-              }
-            };
-            block.data.push(value);
           }
         }
-        AtomType::Directive(Directive {
-          ty: DirectiveType::Zero(count),
-          ..
-        }) => {
-          let count = count.value.to_u32();
-          if count == 0 {
-            continue;
-          }
-
-          let block = self.object.blocks.get_mut(&block_start).unwrap();
-          block.begin_data_offset();
-          for _ in 0..count {
-            self.pc.addr = match self.pc.addr.checked_add(1) {
-              Some(n) => n,
-              None => {
-                self.errors.push(Error {
-                  inner: ErrorType::BankCrossing,
-                  cause: atom,
-                });
-                0u16
-              }
-            };
-            block.data.push(0);
-          }
-        }
-        AtomType::Directive(..) => continue,
 
         AtomType::Instruction(inst) => {
           // First, we need to resolve operands into integers.
@@ -781,5 +732,103 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
         .write_le(&mut block.data[destination_offset..])
         .expect("the space being overwritten should already be zeroed")
     }
+  }
+}
+
+/// A directive type, indicating a well-known assembler directive.
+#[derive(Clone, Debug)]
+enum DirectiveType<'asm> {
+  /// The `.origin` directive, indicating to the assembler that the program
+  /// counter should unconditionally jump to the given argument.
+  Origin(u24),
+  /// The `.extern` directive, which indicates that a name is defined in another
+  /// file. If the bank the symbol is allocated in is not given, it is assumed
+  /// to be in the current bank.
+  Extern {
+    /// The external symbol name.
+    sym: Symbol<'asm>,
+    /// The bank, if different from the current one.
+    bank: Option<u8>,
+  },
+  /// The `.global` directive, which marks a symbol as exported from the current
+  /// file, usable in `.extern` directives elsewhere. It must appear after the
+  /// label is defined.
+  Global(Symbol<'asm>),
+  /// A generic directive for emitting straight literal data. `.data`, `.fill`,
+  /// and `.zero` are sugar for this directive.
+  Data {
+    /// The number of bytes to fill with.
+    count: usize,
+    /// The value to fill the region with. If empty, this is treated as if it
+    /// were a single, zero byte.
+    values: Vec<Int>,
+  },
+}
+
+impl<'asm> DirectiveType<'asm> {
+  /// Parses a well-known directive from the given syntax.
+  ///
+  /// This function also handles directive synonyms, reducing them down to
+  /// something simple that the assembler can understand.
+  // TODO: A better error type?
+  fn from_syn(dir: &Directive<'asm>) -> Option<Self> {
+    let name = dir.sym.name.to_lowercase();
+    let dir = match name.as_str() {
+      ".origin" | ".org" => match &dir.args[..] {
+        [Operand::Int(int)] =>
+          DirectiveType::Origin(u24::from_u32(int.value.to_u32())),
+        _ => return None,
+      },
+      ".extern" => match &dir.args[..] {
+        [Operand::Symbol(sym)] => DirectiveType::Extern {
+          sym: *sym,
+          bank: None,
+        },
+        [Operand::Symbol(sym), Operand::Int(IntLit { value: Int::I8(bank), .. })] => DirectiveType::Extern {
+          sym: *sym,
+          bank: Some(*bank),
+        },
+        _ => return None,
+      },
+      ".global" | ".globl" => match &dir.args[..] {
+        [Operand::Symbol(sym)] => DirectiveType::Global(*sym),
+        _ => return None,
+      },
+      ".data" | ".fill" | ".skip" | ".space" | ".zero" => {
+        let mut args = &dir.args[..];
+        if args.is_empty() {
+          return None
+        }
+
+        let count = if name == ".data" {
+          1
+        } else {
+          if let Operand::Int(int) = &args[0] {
+            args = &args[1..];
+            int.value.to_u32() as usize
+          } else {
+            return None
+          }
+        };
+
+        if name == ".zero" && args.len() != 0 {
+          return None
+        }
+
+        let mut values = Vec::new();
+        for arg in args {
+          match arg {
+            Operand::Int(int) => values.push(int.value),
+            _ => return None,
+          }
+        }
+        DirectiveType::Data {
+          count,
+          values,
+        }
+      },
+      _ => return None,
+    };
+    Some(dir)
   }
 }
