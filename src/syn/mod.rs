@@ -99,15 +99,16 @@
 //! be enforced with a suffix: `adc.i8 $12`. Type-mismatches arising from using
 //! suffixes are also an error: `adc.i8 $12i16` is not allowed.
 
-use crate::int::Int;
 use crate::int::Width;
 use crate::isa::Mnemonic;
 
 pub mod fmt;
+pub mod int;
+pub mod src;
+
 mod parse;
 
 pub use fmt::print;
-pub use parse::{parse, Error, Position, Span};
 
 /// A symbol, representing some location in a program.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -125,37 +126,6 @@ pub struct Comment<'asm> {
   pub text: &'asm str,
 }
 
-/// An assembly file.
-///
-/// An assembly file consists of several
-#[derive(Clone, Debug)]
-pub struct File<'asm> {
-  /// The name of this file.
-  pub name: Option<&'asm str>,
-  /// The atoms that make up this file.
-  pub atoms: Vec<Atom<'asm>>,
-}
-
-/// A span with a file name attached to it.
-#[derive(Clone)]
-pub struct FileSpan<'asm> {
-  /// The name of the file.
-  pub name: Option<&'asm str>,
-  /// A span within the file.
-  pub span: Span<'asm>,
-}
-
-impl std::fmt::Debug for FileSpan<'_> {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    match &self.name {
-      Some(name) => {
-        write!(f, "{:?}[{}, {}]", name, self.span.start(), self.span.end())
-      }
-      None => write!(f, "<?>[{}, {}]", self.span.start(), self.span.end()),
-    }
-  }
-}
-
 /// A syntactic atom.
 ///
 /// An atom describes a "complete" assembler command, such as a label, a
@@ -169,7 +139,7 @@ pub struct Atom<'asm> {
   /// Whether this atom was the last one on a line.
   pub has_newline: bool,
   /// The span this atom was parsed from, if any.
-  pub span: Option<FileSpan<'asm>>,
+  pub span: Option<src::Span<'asm>>,
 }
 
 /// Various types of `Atom`s.
@@ -218,7 +188,7 @@ pub struct InstructionLine<'asm> {
 #[derive(Clone, Debug)]
 pub enum Operand<'asm> {
   /// A literal integer operand.
-  Int(IntLit),
+  Int(int::IntLit),
   /// A string operand.
   String(&'asm str),
   /// A symbol operand, which needs to be resolved against the symbol
@@ -263,51 +233,6 @@ impl Digit {
   pub fn into_inner(self) -> u8 {
     self.0
   }
-}
-
-/// An integer literal.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub struct IntLit {
-  /// The value of this literal.
-  pub value: Int,
-  /// Whether this value was declared as a negative integer.
-  pub is_neg: bool,
-  /// Whether this value was declared as a "not" integer.
-  pub is_not: bool,
-  /// The "style" of this digits, i.e, the base it was parsed in and the
-  /// prefix it had, if any.
-  pub style: DigitStyle,
-}
-
-/// A digit style: decimal, hex, or binary.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum DigitStyle {
-  /// Decimal style: `123`.
-  Dec,
-  /// Hex style: `$dead`.
-  Hex(PrefixStyle),
-  /// Binary style: `%0110`.
-  Bin(PrefixStyle),
-}
-
-impl DigitStyle {
-  /// Returns this `DigitStyle`'s associated radix.
-  pub fn radix(self) -> u32 {
-    match self {
-      Self::Dec => 10,
-      Self::Hex(_) => 16,
-      Self::Bin(_) => 2,
-    }
-  }
-}
-
-/// A prefix style, i.e., `$ff` vs. `0xff`.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum PrefixStyle {
-  /// Classic style: `$ff` and `%10`.
-  Classic,
-  /// Modern, C-style: `0xff` and `0b10`.
-  Modern,
 }
 
 /// A "address expression", encompassing all of the syntactic variations

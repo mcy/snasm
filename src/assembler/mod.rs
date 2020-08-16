@@ -15,10 +15,10 @@ use crate::syn::Atom;
 use crate::syn::AtomType;
 use crate::syn::DigitLabelRef;
 use crate::syn::Directive;
-use crate::syn::File;
-use crate::syn::IntLit;
+use crate::syn::int::IntLit;
 use crate::syn::Operand;
 use crate::syn::Symbol;
+use crate::syn::src::Source;
 
 mod tables;
 
@@ -187,15 +187,15 @@ pub struct Relocation<'asm> {
 /// Returns a complete `Object` on success, or a collection of `Error`s that may
 /// have occured during assembly.
 pub fn assemble<'atom, 'asm>(
-  file: &'atom File<'asm>,
+  src: &'atom Source<'asm>,
 ) -> Result<Object<'asm>, Vec<Error<'atom, 'asm>>> {
-  Assembler::new(file).run()
+  Assembler::new(src).run()
 }
 
 /// The main state struct for the assembler.
 struct Assembler<'atom, 'asm> {
   /// The source file we're starting from
-  file: &'atom File<'asm>,
+  src: &'atom Source<'asm>,
   /// The object file being assembled.
   object: Object<'asm>,
 
@@ -312,10 +312,10 @@ enum SymOrDlr<'asm> {
 const DEFAULT_PC: u24 = u24::from_u32(0x80_8000);
 
 impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
-  fn new(file: &'atom File<'asm>) -> Self {
+  fn new(src: &'atom Source<'asm>) -> Self {
     Self {
-      file,
-      object: Object::new(file.name),
+      src,
+      object: Object::new(src.file_name()),
 
       pc: DEFAULT_PC,
       dbr_state: DbrState::Pc,
@@ -356,7 +356,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
   /// Builds the initial symbol table via a simplistic traversal of labels and
   /// directives.
   fn init_symbol_bank_table(&mut self) {
-    for (idx, atom) in self.file.atoms.iter().enumerate() {
+    for (idx, atom) in self.src.iter().enumerate() {
       match &atom.inner {
         AtomType::Label(sym) => {
           if let Err(old) =
@@ -420,7 +420,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
     let mut block_start = self.pc;
     self.object.blocks.insert(block_start, Block::new());
 
-    for (idx, atom) in self.file.atoms.iter().enumerate() {
+    for (idx, atom) in self.src.iter().enumerate() {
       match &atom.inner {
         AtomType::Label(sym) => {
           self.symbols.lookup(*sym).unwrap().1 = SymbolValue::Addr(self.pc)

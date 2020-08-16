@@ -3,17 +3,16 @@
 use std::io;
 use std::io::Write as _;
 
-use crate::int::Width;
 use crate::isa::Instruction;
 use crate::syn::AddrExpr;
 use crate::syn::AtomType;
-use crate::syn::DigitStyle;
 use crate::syn::Direction;
-use crate::syn::File;
+use crate::syn::src::Source;
 use crate::syn::InstructionLine;
-use crate::syn::IntLit;
 use crate::syn::Operand;
-use crate::syn::PrefixStyle;
+use crate::syn::int::DigitStyle;
+use crate::syn::int::PrefixStyle;
+use crate::syn::int::IntLit;
 
 /// Formatter options.
 ///
@@ -47,9 +46,6 @@ pub struct Options {
   ///
   /// Defaults to 16 bytes.
   pub comment_justify_threshold: Option<usize>,
-  /// Whether to always include a suffix for integer literals, or only when
-  /// necessary.
-  pub always_include_suffix: bool,
 }
 
 impl Default for Options {
@@ -58,20 +54,19 @@ impl Default for Options {
       force_newlines: true,
       instruction_indent: 4,
       comment_justify_threshold: Some(26),
-      always_include_suffix: false,
     }
   }
 }
 
-/// Prints out a `File` using the given options.
+/// Prints out a `Source` using the given options.
 ///
 /// See [`Options`](struct.Options.html) for more details.
-pub fn print(opts: &Options, f: &File, w: impl io::Write) -> io::Result<()> {
+pub fn print(opts: &Options, f: &Source, w: impl io::Write) -> io::Result<()> {
   // Any time we write a "real" newline, we reset the counter, so that the
   // counter is just the the number of bytes since a newline.
   let mut w = ByteCounter::new(w);
 
-  for atom in &f.atoms {
+  for atom in f {
     match &atom.inner {
       AtomType::Label(sym) => {
         if w.count() > 0 {
@@ -239,8 +234,7 @@ pub fn print_instruction(
         .map(|_, &int| -> Result<_, ()> {
           Ok(Operand::Int(IntLit {
             value: int,
-            is_neg: false,
-            is_not: false,
+            unary: None,
             style: DigitStyle::Hex(PrefixStyle::Classic),
           }))
         })
@@ -251,52 +245,19 @@ pub fn print_instruction(
 }
 
 fn pretty_print_operand(
-  opts: &Options,
+  _: &Options,
   op: &Operand,
   w: &mut impl io::Write,
 ) -> io::Result<()> {
   match op {
-    Operand::Int(int) => {
-      let mut value = int.value;
-      if int.is_neg {
-        value = -value;
-        write!(w, "-")?;
-      }
-      if int.is_not {
-        value = !value;
-        write!(w, "!")?;
-      }
-
-      match (int.style, value) {
-        (DigitStyle::Dec, n) => write!(w, "{}", n)?,
-        (DigitStyle::Bin(PrefixStyle::Classic), n) => write!(w, "%{:b}", n)?,
-        (DigitStyle::Bin(PrefixStyle::Modern), n) => write!(w, "0b{:b}", n)?,
-        (DigitStyle::Hex(PrefixStyle::Classic), n) => write!(w, "${:x}", n)?,
-        (DigitStyle::Hex(PrefixStyle::Modern), n) => write!(w, "0x{:x}", n)?,
-      }
-
-      let needs_ty = match int.value.width() {
-        Width::I8 => false,
-        Width::I16 => Width::I8.in_range(int.value.to_u32()),
-        Width::I24 => {
-          Width::I8.in_range(int.value.to_u32())
-            || Width::I16.in_range(int.value.to_u32())
-        }
-      };
-      if opts.always_include_suffix || needs_ty {
-        write!(w, "_{}", int.value.width())?
-      }
-    }
-
-    Operand::String(..) => unreachable!(),
-    Operand::Symbol(s) => write!(w, "{}", s.name)?,
+    Operand::Int(int) => write!(w, "{}", int),
+    Operand::Symbol(s) => write!(w, "{}", s.name),
     Operand::DigitLabelRef(dlr) => match dlr.dir {
-      Direction::Forward => write!(w, "{}f", dlr.digit.into_inner())?,
-      Direction::Backward => write!(w, "{}b", dlr.digit.into_inner())?,
+      Direction::Forward => write!(w, "{}f", dlr.digit.into_inner()),
+      Direction::Backward => write!(w, "{}b", dlr.digit.into_inner()),
     },
+    Operand::String(..) => unreachable!(),
   }
-
-  Ok(())
 }
 
 /// Helper for wrapping a `Write`, which keeps track of the total number of

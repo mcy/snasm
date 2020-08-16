@@ -18,6 +18,7 @@ fn main() {
   ;
   ; ABI is (.., a, b, ra1, ra2) on the stack, with (.., sum, ?) afterwards.
   sum_of_range:
+  .global sum_of_range
     tsc
     inc a
     tcs
@@ -44,9 +45,13 @@ fn main() {
 
   zeroes:
   .global zeroes
-  .zero $100
+  .fill 20, !1
+  .bank else
+    lda zeroes
 
-  .origin $900000
+  .origin 0x900000
+  .bank $80
+    lda zeroes
   main:
     ldx #5_i16
     ldy #10_i16
@@ -55,7 +60,7 @@ fn main() {
     jsr foo
 "#;
 
-  let file = crate::syn::parse(None, asm).unwrap();
+  let file = syn::src::Source::parse(None, asm).unwrap();
   syn::print(&syn::fmt::Options::default(), &file, &mut std::io::stdout())
     .unwrap();
 

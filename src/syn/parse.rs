@@ -6,9 +6,9 @@ use pest::error::Error as PestError;
 use pest::error::InputLocation;
 use pest::iterators::Pair;
 use pest_derive::Parser;
+use pest::Position;
 
-pub use pest::Position;
-pub use pest::Span;
+pub use pest::Span as PestSpan;
 
 use crate::int::Int;
 use crate::int::Width;
@@ -19,16 +19,17 @@ use crate::syn::AtomType;
 use crate::syn::Comment;
 use crate::syn::Digit;
 use crate::syn::DigitLabelRef;
-use crate::syn::DigitStyle;
+use crate::syn::int::DigitStyle;
+use crate::syn::int::Unary;
 use crate::syn::Direction;
 use crate::syn::Directive;
-use crate::syn::File;
-use crate::syn::FileSpan;
+use crate::syn::src::Source;
+use crate::syn::src::Span;
 use crate::syn::IdxReg;
 use crate::syn::InstructionLine;
-use crate::syn::IntLit;
+use crate::syn::int::IntLit;
 use crate::syn::Operand;
-use crate::syn::PrefixStyle;
+use crate::syn::int::PrefixStyle;
 use crate::syn::Symbol;
 
 #[derive(Parser)]
@@ -69,8 +70,8 @@ impl From<PestError<Rule>> for ErrorType {
 pub fn parse<'asm>(
   file_name: Option<&'asm str>,
   src: &'asm str,
-) -> Result<File<'asm>, Error<'asm>> {
-  let mut file = File {
+) -> Result<Source<'asm>, Error<'asm>> {
+  let mut file = Source {
     name: file_name.into(),
     atoms: Vec::new(),
   };
@@ -101,7 +102,7 @@ pub fn parse<'asm>(
 
     let len = file.atoms.len();
     for atom in atoms {
-      let span = Some(FileSpan {
+      let span = Some(Span {
         name: file_name,
         span: atom.as_span(),
       });
@@ -287,13 +288,16 @@ fn parse_operand<'asm>(
       let rule = operand.as_rule();
       let mut inner = operand.into_inner();
       let mut token = inner.next().unwrap();
-      let (is_neg, is_not) = if token.as_rule() == Rule::IntOp {
-        let s = token.as_str();
-        let values = (s == "-", s == "!");
+      let unary = if token.as_rule() == Rule::IntOp {
+        let unary = match token.as_str() {
+          "-" => Some(Unary::Neg),
+          "!" => Some(Unary::Not),
+          _ => unreachable!(),
+        };
         token = inner.next().unwrap();
-        values
+        unary
       } else {
-        (false, false)
+        None
       };
 
       let style = match rule {
@@ -340,17 +344,15 @@ fn parse_operand<'asm>(
         })?;
 
       let mut value = Int::new(value, width);
-      if is_neg {
-        value = -value;
-      }
-      if is_not {
-        value = !value;
+      match unary {
+        Some(Unary::Neg) => value = -value,
+        Some(Unary::Not) => value = !value,
+        _ => {}
       }
 
       Ok(Operand::Int(IntLit {
         value,
-        is_neg,
-        is_not,
+        unary,
         style,
       }))
     }
