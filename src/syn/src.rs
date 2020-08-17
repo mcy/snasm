@@ -44,8 +44,18 @@ impl Format for Source<'_> {
     opts: Options,
     w: &mut ByteCounter<W>,
   ) -> fmt::Result {
+    let mut was_last_empty_line = false;
+    let mut first_nonempty = false;
     for atom in self {
+      if atom.is_empty() {
+        was_last_empty_line = true;
+        continue
+      } else if was_last_empty_line && first_nonempty {
+        writeln!(w, "")?;
+      }
       atom.fmt(opts, w)?;
+      first_nonempty = true;
+      was_last_empty_line = false;
     }
     Ok(())
   }

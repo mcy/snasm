@@ -1,7 +1,5 @@
 //! The SNASM assembler, for converting assembly files into object files.
 
-use std::convert::TryInto;
-
 use crate::int::u24;
 use crate::int::Int;
 use crate::int::Width;
@@ -9,6 +7,7 @@ use crate::isa::Instruction;
 use crate::isa::Mnemonic;
 use crate::obj::Object;
 use crate::obj::Relocation;
+use crate::obj::RelocationInfo;
 use crate::syn::atom::Atom;
 use crate::syn::atom::AtomType;
 use crate::syn::atom::Directive;
@@ -512,19 +511,23 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
           1
         };
 
-      let &mut (_, symbol_value) = match reference.source {
+      let (_, symbol_value) = match reference.source {
         SymOrLocal::Sym(sym) => self.symbols.lookup(sym),
         SymOrLocal::Local(local, idx) => self.symbols.lookup_local(local, idx),
       }
       .expect("all references are to valid symbols");
 
+      let relocation = RelocationInfo {
+        instruction_offset: reference.instruction_offset as u16,
+        destination_offset: destination_offset as u16,
+        destination_width: reference.expected_width,
+      };
+
       let val = match (symbol_value, reference.source) {
         // Symbol was never completed; must be an external symbol.
         (SymbolValue::Bank(_), SymOrLocal::Sym(sym)) => {
           block.add_relocation(Relocation {
-            instruction_offset: reference.instruction_offset as u16,
-            destination_offset: destination_offset as u16,
-            destination_width: reference.expected_width,
+            info: relocation,
             source: sym,
           });
           continue;
@@ -537,44 +540,18 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
         (SymbolValue::Addr(addr), _) => addr,
       };
 
-      // Note: all pc-relative instructions at i16 or smaller.
-      // At this point, know for a fact that `val` is in the same bank.
-      if inst.mnemonic().is_pc_relative() {
-        let mut next_pc = reference.block_id.addr;
-        next_pc = next_pc.wrapping_add(reference.instruction_offset as u16);
-        next_pc = next_pc.wrapping_add(inst.encoded_len() as u16);
-
-        let offset = val.addr.wrapping_sub(next_pc) as i16;
-        if inst.mnemonic().is_one_byte_branch() {
-          let offset: i8 = match offset.try_into() {
-            Ok(offset) => offset,
-            _ => {
-              match reference.source {
-                SymOrLocal::Sym(sym) => self.errors.push(Error {
-                  inner: ErrorType::SymbolTooFar(sym),
-                  cause: reference.cause,
-                }),
-                SymOrLocal::Local(local, _) => self.errors.push(Error {
-                  inner: ErrorType::LocalTooFar(local),
-                  cause: reference.cause,
-                }),
-              }
-              continue;
-            }
-          };
-
-          inst_buf[1] = offset as u8;
-        } else {
-          inst_buf[..2].copy_from_slice(&offset.to_le_bytes());
+      if !block.resolve_relocation(relocation, *val) {
+        match reference.source {
+          SymOrLocal::Sym(sym) => self.errors.push(Error {
+            inner: ErrorType::SymbolTooFar(sym),
+            cause: reference.cause,
+          }),
+          SymOrLocal::Local(local, _) => self.errors.push(Error {
+            inner: ErrorType::LocalTooFar(local),
+            cause: reference.cause,
+          }),
         }
-        continue;
       }
-      // All the awful cases have been dealt with. We can just truncate val if
-      // necessary and write it to the destination.
-      let int = Int::new(val.to_u32(), reference.expected_width);
-      int
-        .write_le(&mut block.data_mut()[destination_offset..])
-        .expect("the space being overwritten should already be zeroed")
     }
   }
 }

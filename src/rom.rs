@@ -8,7 +8,7 @@
 //! [good video](https://www.youtube.com/watch?v=-U76YvWdnZM) explaining the
 //! visual layouts of each mapping mode.
 
-use std::collections::HashMap;
+use std::io;
 
 use crate::int::u24;
 
@@ -17,15 +17,12 @@ use crate::int::u24;
 /// This essentially provides a fixed virtual memory map: 24-bit SNES virutal
 /// addresses are mapped to physical ROM address. Multiple SNES addresses may
 /// map to the same ROM address.
-///
-/// The underlying `Byte` type need not be `u8`; it is sometimes useful to have
-/// more complex byte types that include sentinel variants.
-pub trait Rom<Byte> {
+pub trait Rom {
   /// Returns the number of useable bytes in this ROM.
   fn len(&self) -> usize;
 
   /// Gets the byte at the SNES address `addr`, if it's been mapped in.
-  fn at(&mut self, addr: u24) -> Option<&mut Byte>;
+  fn at(&mut self, addr: u24) -> Option<&mut u8>;
 }
 
 /// A LoROM-mapped ROM.
@@ -37,21 +34,53 @@ pub trait Rom<Byte> {
 /// banks `0x00` to `0x7f`, though portions of these may be overriden by SRAM
 /// and WRAM.
 ///
+/// The following diagram describes this arrangement (ignoring the bottom half
+/// of the SNES address space):
+/// ```text
+///   $xx0000..$xx7fff   $xx8000..$xxffff
+/// +------------------+------------------+
+/// |                  | $000000..$007fff | $80xxxx
+/// +------------------+------------------+
+/// |                  | $008000..$00ffff | $81xxxx
+/// +------------------+------------------+
+/// |                  | $010000..$017fff | $82xxxx
+/// +------------------+------------------+
+/// |                  | $018000..$01ffff | $83xxxx
+/// +------------------+------------------+
+///  ...                                 
+/// +------------------+------------------+
+/// |                  | $080000..$087fff | $90xxxx
+/// +------------------+------------------+
+/// |                  | $088000..$08ffff | $91xxxx
+/// +------------------+------------------+
+///  ...                                 
+/// +------------------+------------------+
+/// | $200000..$287fff | $200000..$287fff | $c0xxxx
+/// +------------------+------------------+
+/// | $208000..$28ffff | $208000..$28ffff | $c1xxxx
+/// +------------------+------------------+
+///  ...                                 
+/// +------------------+------------------+
+/// | $3e0000..$3e7fff | $3e0000..$3e7fff | $fcxxxx
+/// +------------------+------------------+
+/// | $3e8000..$3effff | $3e8000..$3effff | $fdxxxx
+/// +------------------+------------------+
+/// | $3f0000..$3f7fff | $3f0000..$3f7fff | $fexxxx
+/// +------------------+------------------+
+/// | $3f8000..$3fffff | $3f8000..$3fffff | $ffxxxx
+/// +------------------+------------------+
+/// ```
+/// The empty boxes above are unmapped, or mapped to something else.
+///
 /// This `Rom` implementation pretends that WRAM and SRAM do not exist.
-pub struct LoRom<Byte> {
-  /// Lazily-allocates banks of 256 "bytes" each. This helps keep memory usage
-  /// down, since a `Byte` might be bigger than a machine byte, and it's
-  /// unlikely we need to map them all in at once.
-  ///
-  /// The first parameter is the first 24-bit address of each page: `0x222200`
-  /// is the `0x22`th page of the bank `0x22`.
-  lazy_pages: HashMap<u32, Vec<Byte>>,
-  default: Byte,
+#[derive(Clone)]
+pub struct LoRom {
+  bytes: Box<[u8]>,
 }
 
-impl<Byte> LoRom<Byte> {
+impl LoRom {
   /// The length of a `LoRom`: four mebibytes.
-  pub const LEN: usize = 0x400_000;
+  pub const LEN: usize = 0x40_0000;
 
   /// Maps `addr` down to a physical address, if such a mapping exists.
   pub fn map(mut addr: u24) -> Option<u32> {
@@ -82,47 +111,57 @@ impl<Byte> LoRom<Byte> {
 
     Some(rom_bank_offset | ((addr.addr & 0x7fff) as u32))
   }
-}
 
-impl<Byte: Clone> LoRom<Byte> {
-  /// Creates a new `LoRom` with the given value of `Byte` in each slot.
-  pub fn filled_with(byte: Byte) -> Self {
+  /// Creates a new `LoRom` filled with zeroes.
+  pub fn new() -> Self {
+    Self::filled_with(0)
+  }
+
+  /// Creates a new `LoRom` with the given value of `vyte` in each slot.
+  pub fn filled_with(byte: u8) -> Self {
     Self {
-      lazy_pages: HashMap::new(),
-      default: byte,
+      bytes: vec![byte; Self::LEN].into_boxed_slice(),
     }
   }
 
-  /// Gets the page containing the given ROM address, triggering an allocation
-  /// if necessary.
-  fn page_for_rom_addr(&mut self, addr: u32) -> &mut [Byte] {
-    let addr = addr & 0xffff00;
-    let default = &self.default;
-    self.lazy_pages.entry(addr).or_insert_with(|| {
-      let mut vec = Vec::with_capacity(0x100);
-      for _ in 0..0x100 {
-        vec.push(default.clone());
+  /// Dumps the (interesting) contents of this ROM to the given `Write`.
+  pub fn dump(&self, mut w: impl io::Write) -> io::Result<()> {
+    let mut ascii_str = String::new();
+    let iter = self.bytes.chunks(32).enumerate().filter(|(_, c)| {
+      c.iter().any(|&byte| byte != 0)
+    });
+    for (addr, chunk) in iter {
+      write!(w, "{:06x}:", addr * 32)?;
+
+      ascii_str.clear();
+      for &byte in chunk {
+        write!(w, " {:02x}", byte)?;
+
+        if 0x20 <= byte && byte <= 0x7e {
+          ascii_str.push(byte as char);
+        } else {
+          ascii_str.push('.');
+        }
       }
-      vec
-    })
+      writeln!(w, "  |{}|", ascii_str)?;
+    }
+    Ok(())
+  }
+
+  /// Consumses this `LoRom`, returning the raw ROM bytes.
+  pub fn into_bytes(self) -> Box<[u8]> {
+    self.bytes
   }
 }
 
-impl<Byte: Clone + Default> LoRom<Byte> {
-  /// Creates a new `LoRom` with the default value of `Byte` in each slot.
-  pub fn new() -> Self {
-    Self::filled_with(Byte::default())
-  }
-}
-
-impl<Byte: Clone> Rom<Byte> for LoRom<Byte> {
+impl Rom for LoRom {
   fn len(&self) -> usize {
     Self::LEN
   }
 
-  fn at(&mut self, addr: u24) -> Option<&mut Byte> {
+  fn at(&mut self, addr: u24) -> Option<&mut u8> {
     Self::map(addr)
-      .map(move |a| &mut self.page_for_rom_addr(a)[(a & 0xff) as usize])
+      .map(move |a| &mut self.bytes[a as usize])
   }
 }
 
@@ -134,10 +173,10 @@ mod test {
 
   macro_rules! assert_mapping {
     ($ty:ident, $val:literal => None) => {
-      assert_eq!($ty::<u8>::map(u24::from_u32($val)), None);
+      assert_eq!($ty::map(u24::from_u32($val)), None);
     };
     ($ty:ident, $val:literal => $expected:literal) => {
-      assert_eq!($ty::<u8>::map(u24::from_u32($val)), Some($expected));
+      assert_eq!($ty::map(u24::from_u32($val)), Some($expected));
     };
   }
 

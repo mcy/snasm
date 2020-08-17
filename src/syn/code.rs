@@ -85,10 +85,11 @@ impl Format for Code<'_> {
     write!(w, "{}", self.mnemonic.name())?;
     match self.width {
       Some(width) => write!(w, ".{:<3}", width)?,
-      None => write!(w, "    ")?,
+      None if self.addr.is_some() => write!(w, "    ")?,
+      _ => {},
     }
 
-    if self.addr.is_some() {
+    if let Some(addr) = &self.addr {
       if on_margin && opts.instruction_indent != 0 {
         write!(w, " ")?;
         // Round the count so far up to the indent width.
@@ -98,8 +99,9 @@ impl Format for Code<'_> {
       } else {
         write!(w, " ")?;
       }
+
+      addr.fmt(opts, w)?;
     }
-    self.addr.as_ref().map(|a| a.fmt(opts, w)).transpose()?;
     Ok(())
   }
 }

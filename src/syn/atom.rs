@@ -51,6 +51,16 @@ pub struct Atom<'asm> {
   pub span: Option<Span<'asm>>,
 }
 
+impl<'atom> Atom<'atom> {
+  /// Returns whether this is a truly empty line: empty type and no comment.
+  pub fn is_empty(&self) -> bool {
+    match self.inner {
+      AtomType::Empty if self.comment.is_none() => true,
+      _ => false,
+    }
+  }
+}
+
 impl Format for Atom<'_> {
   fn fmt<W: fmt::Write>(
     &self,
