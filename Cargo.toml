@@ -9,3 +9,10 @@ regex = "1.3.7"
 lazy_static = "1.4.0"
 pest = "2.1.2"
 pest_derive = "2.1.0"
+
+structopt = "0.3.16"
+
+[[bin]]
+name = "snasm"
+path = "src/main.rs"
+doc = false

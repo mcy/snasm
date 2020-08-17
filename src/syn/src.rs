@@ -52,6 +52,7 @@ impl Format for Source<'_> {
         continue
       } else if was_last_empty_line && first_nonempty {
         writeln!(w, "")?;
+        w.reset_count();
       }
       atom.fmt(opts, w)?;
       first_nonempty = true;
