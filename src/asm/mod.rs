@@ -1,5 +1,8 @@
 //! The SNASM assembler, for converting assembly files into object files.
 
+use std::fmt;
+
+use crate::error;
 use crate::int::u24;
 use crate::int::Int;
 use crate::int::Width;
@@ -26,7 +29,7 @@ mod tables;
 /// have occured during assembly.
 pub fn assemble<'atom, 'asm>(
   src: &'atom Source<'asm>,
-) -> Result<Object<'asm>, Vec<Error<'atom, 'asm>>> {
+) -> Result<Object<'asm>, error::Errors<Error<'atom, 'asm>>> {
   Assembler::new(src).run()
 }
 
@@ -50,7 +53,7 @@ struct Assembler<'atom, 'asm> {
   references: Vec<Reference<'atom, 'asm>>,
 
   /// Errors generated during various phases of assembly.
-  errors: Vec<Error<'atom, 'asm>>,
+  errors: error::Errors<Error<'atom, 'asm>>,
 }
 
 #[derive(Copy, Clone)]
@@ -62,8 +65,6 @@ enum SymbolValue {
 /// An error type, not including the `Atom` that caused it.
 #[derive(Debug)]
 pub enum ErrorType<'atom, 'asm> {
-  /// Something bad but unspecified occured.
-  Unknown,
   /// Indicates an attempt to redefine an already-defined symbol.
   Redef(Symbol<'asm>, &'atom Atom<'asm>),
   /// Indicates that symbol resolution failed.
@@ -95,6 +96,41 @@ pub struct Error<'atom, 'asm> {
   pub inner: ErrorType<'atom, 'asm>,
   /// The `Atom` at which the error was encountered.
   pub cause: &'atom Atom<'asm>,
+  /// The `Source` that originated this error.
+  pub source: &'atom Source<'asm>,
+}
+
+impl fmt::Display for Error<'_, '_> {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    match &self.inner {
+      ErrorType::Redef(sym, _) => write!(f, "redefinition of {}", sym),
+      ErrorType::UndefinedSymbol(sym) => write!(f, "undefined symbol: {}", sym),
+      ErrorType::UndefinedLocal(_) => write!(f, "undefined local"),
+      ErrorType::BadInstruction(mne, _) => {
+        write!(f, "invalid addressing mode for {}", mne)
+      }
+      ErrorType::BadIntType => write!(f, "bad integer type"),
+      ErrorType::BadDirective => write!(f, "couldn't parse directive"),
+      ErrorType::BankCrossing => write!(f, "tried to cross a bank boundary"),
+      ErrorType::SymbolTooFar(sym) => {
+        write!(f, "symbol too far for branch: {}", sym)
+      }
+      ErrorType::LocalTooFar(_) => write!(f, "local too far for branch"),
+    }
+  }
+}
+
+impl error::Error for Error<'_, '_> {
+  fn cause(&self) -> error::Cause<'_> {
+    match &self.cause.span {
+      Some(span) => error::Cause::Span(span.clone()),
+      None => error::Cause::File(self.source.file_name()),
+    }
+  }
+
+  fn action(&self) -> Option<error::Action> {
+    Some(error::Action::Assembling)
+  }
 }
 
 /// Tracks the state of the DBR, the "Data Bank Register". By default, SNASM
@@ -159,23 +195,23 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
       dbr_state: DbrState::Pc,
       symbols: tables::SymbolTable::new(),
       references: Vec::new(),
-      errors: Vec::new(),
+      errors: error::Errors::new(),
     }
   }
 
-  fn run(mut self) -> Result<Object<'asm>, Vec<Error<'atom, 'asm>>> {
+  fn run(mut self) -> Result<Object<'asm>, error::Errors<Error<'atom, 'asm>>> {
     self.init_symbol_bank_table();
-    if !self.errors.is_empty() {
+    if !self.errors.is_ok() {
       return Err(self.errors);
     }
 
     self.naive_assemble();
-    if !self.errors.is_empty() {
+    if !self.errors.is_ok() {
       return Err(self.errors);
     }
 
     self.resolve_references();
-    if !self.errors.is_empty() {
+    if !self.errors.is_ok() {
       return Err(self.errors);
     }
 
@@ -205,6 +241,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
             self.errors.push(Error {
               inner: ErrorType::Redef(*sym, old),
               cause: atom,
+              source: self.src,
             })
           }
         }
@@ -222,6 +259,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
               self.errors.push(Error {
                 inner: ErrorType::BadDirective,
                 cause: atom,
+                source: self.src,
               });
               continue;
             }
@@ -238,6 +276,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                 self.errors.push(Error {
                   inner: ErrorType::Redef(sym, old),
                   cause: atom,
+                  source: self.src,
                 })
               }
             }
@@ -274,6 +313,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
               self.errors.push(Error {
                 inner: ErrorType::BadDirective,
                 cause: atom,
+                source: self.src,
               });
               continue;
             }
@@ -295,6 +335,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                   self.errors.push(Error {
                     inner: ErrorType::UndefinedSymbol(sym),
                     cause: atom,
+                    source: self.src,
                   });
                   continue;
                 }
@@ -305,6 +346,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                   self.errors.push(Error {
                     inner: ErrorType::UndefinedSymbol(sym),
                     cause: atom,
+                    source: self.src,
                   });
                   continue;
                 }
@@ -335,6 +377,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                       self.errors.push(Error {
                         inner: ErrorType::BankCrossing,
                         cause: atom,
+                        source: self.src,
                       });
                       0u16
                     }
@@ -452,6 +495,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
               self.errors.push(Error {
                 inner: e,
                 cause: atom,
+                source: self.src,
               });
               continue;
             }
@@ -464,6 +508,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                 self.errors.push(Error {
                   inner: ErrorType::BadInstruction(inst.mnemonic, operand),
                   cause: atom,
+                  source: self.src,
                 });
                 continue;
               }
@@ -476,6 +521,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                 self.errors.push(Error {
                   inner: ErrorType::BankCrossing,
                   cause: atom,
+                  source: self.src,
                 });
                 0u16
               }
@@ -545,10 +591,12 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
           SymOrLocal::Sym(sym) => self.errors.push(Error {
             inner: ErrorType::SymbolTooFar(sym),
             cause: reference.cause,
+            source: self.src,
           }),
           SymOrLocal::Local(local, _) => self.errors.push(Error {
             inner: ErrorType::LocalTooFar(local),
             cause: reference.cause,
+            source: self.src,
           }),
         }
       }

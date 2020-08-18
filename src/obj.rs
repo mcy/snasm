@@ -94,7 +94,8 @@ impl<'asm> Object<'asm> {
     for (name, addr) in &self.globals {
       writeln!(w, ".global {}, 0x{:06x}", name, addr)?;
     }
-    let mut block_addrs = self.blocks.iter().map(|(k, _)| *k).collect::<Vec<_>>();
+    let mut block_addrs =
+      self.blocks.iter().map(|(k, _)| *k).collect::<Vec<_>>();
     block_addrs.sort();
 
     for addr in block_addrs {

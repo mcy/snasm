@@ -50,7 +50,7 @@ impl Format for Source<'_> {
     for atom in self {
       if atom.is_empty() {
         was_last_empty_line = true;
-        continue
+        continue;
       } else if was_last_empty_line && first_nonempty {
         writeln!(w, "")?;
         w.reset_count();

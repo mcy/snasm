@@ -127,9 +127,11 @@ impl LoRom {
   /// Dumps the (interesting) contents of this ROM to the given `Write`.
   pub fn dump(&self, mut w: impl io::Write) -> io::Result<()> {
     let mut ascii_str = String::new();
-    let iter = self.bytes.chunks(32).enumerate().filter(|(_, c)| {
-      c.iter().any(|&byte| byte != 0)
-    });
+    let iter = self
+      .bytes
+      .chunks(32)
+      .enumerate()
+      .filter(|(_, c)| c.iter().any(|&byte| byte != 0));
     for (addr, chunk) in iter {
       write!(w, "{:06x}:", addr * 32)?;
 
@@ -160,8 +162,7 @@ impl Rom for LoRom {
   }
 
   fn at(&mut self, addr: u24) -> Option<&mut u8> {
-    Self::map(addr)
-      .map(move |a| &mut self.bytes[a as usize])
+    Self::map(addr).map(move |a| &mut self.bytes[a as usize])
   }
 }
 

@@ -1,5 +1,6 @@
 //! Instruction mnemonics for the 65816 ISA.
 
+use std::fmt;
 use std::str::FromStr;
 
 /// The error returned when parsing a `Mnemonic` from a string.
@@ -99,6 +100,13 @@ impl FromStr for Mnemonic {
   type Err = MnemonicParseError;
   fn from_str(s: &str) -> Result<Self, Self::Err> {
     Self::from_name(s).ok_or(MnemonicParseError)
+  }
+}
+
+impl fmt::Display for Mnemonic {
+  #[inline]
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fmt::Display::fmt(&self.name(), f)
   }
 }
 

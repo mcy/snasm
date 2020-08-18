@@ -86,7 +86,7 @@ impl Format for Code<'_> {
     match self.width {
       Some(width) => write!(w, ".{:<3}", width)?,
       None if self.addr.is_some() => write!(w, "    ")?,
-      _ => {},
+      _ => {}
     }
 
     if let Some(addr) = &self.addr {

@@ -1,5 +1,6 @@
 //! The SNASM parser.
 
+use std::fmt;
 use std::mem;
 use std::path::Path;
 
@@ -11,6 +12,7 @@ use pest_derive::Parser;
 
 pub use pest::Span as PestSpan;
 
+use crate::error;
 use crate::int::Int;
 use crate::int::Width;
 use crate::isa::Mnemonic;
@@ -38,31 +40,49 @@ struct PegParser;
 
 /// A parsing error type.
 #[derive(Clone, Debug)]
-pub enum ErrorType {
+pub enum ErrorType<'asm> {
   /// An error originating from inside the PEG parser.
   Peg(PestError<Rule>),
   /// An error due to a bad integer.
   BadInt,
   /// An error due to a bad mnemonic.
-  BadMnemonic,
-  /// An error due to a bad register name.
-  BadRegister,
-  /// An error due to a directive parsing error.
-  BadDirective,
+  BadMnemonic(&'asm str),
+}
+
+impl From<PestError<Rule>> for ErrorType<'_> {
+  fn from(e: PestError<Rule>) -> Self {
+    ErrorType::Peg(e)
+  }
 }
 
 /// A parsing error.
 #[derive(Clone, Debug)]
 pub struct Error<'asm> {
   /// The type of the error.
-  pub inner: ErrorType,
-  /// The line at which the error occured.
-  pub pos: Position<'asm>,
+  pub inner: ErrorType<'asm>,
+  /// The span at which the error occuyred.
+  pub span: Span<'asm>,
 }
 
-impl From<PestError<Rule>> for ErrorType {
-  fn from(e: PestError<Rule>) -> Self {
-    ErrorType::Peg(e)
+impl fmt::Display for Error<'_> {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    match &self.inner {
+      ErrorType::Peg(..) => write!(f, "unknown syntax error"),
+      ErrorType::BadInt => write!(f, "integer literal is invalid"),
+      ErrorType::BadMnemonic(name) => {
+        write!(f, "unknown instruction mnemonic: {}", name)
+      }
+    }
+  }
+}
+
+impl error::Error for Error<'_> {
+  fn cause(&self) -> error::Cause<'_> {
+    error::Cause::Span(self.span.clone())
+  }
+
+  fn action(&self) -> Option<error::Action> {
+    Some(error::Action::Parsing)
   }
 }
 
@@ -80,14 +100,24 @@ pub fn parse<'asm>(
   let mut pair = match PegParser::parse(Rule::File, src) {
     Ok(pair) => pair,
     Err(err) => {
-      let pos = match err.location {
-        InputLocation::Pos(pos) => pos,
-        InputLocation::Span((pos, _)) => pos,
+      let span = match err.location {
+        InputLocation::Pos(pos) => {
+          let pos = Position::new(src, pos).unwrap();
+          pos.span(&pos)
+        }
+        InputLocation::Span((start, end)) => {
+          let start = Position::new(src, start).unwrap();
+          let end = Position::new(src, end).unwrap();
+          start.span(&end)
+        }
       };
-      let pos = Position::new(src, pos).unwrap();
+      let span = Span {
+        name: file_name,
+        span,
+      };
       return Err(Error {
         inner: err.into(),
-        pos,
+        span,
       });
     }
   };
@@ -106,7 +136,6 @@ pub fn parse<'asm>(
         name: file_name,
         span: atom.as_span(),
       });
-      let pos = atom.as_span().start_pos();
       match atom.as_rule() {
         Rule::Label => {
           let name = atom.into_inner().next().unwrap().as_str();
@@ -142,7 +171,7 @@ pub fn parse<'asm>(
           let name = inner.next().unwrap().as_str();
           let mut args = Vec::new();
           for arg in inner {
-            args.push(parse_operand(arg)?);
+            args.push(parse_operand(file_name, arg)?);
           }
           let directive = Directive {
             sym: Symbol { name },
@@ -164,11 +193,11 @@ pub fn parse<'asm>(
 
           let mne_str = inner.next().unwrap().as_str();
           let mut split = mne_str.split('.');
-          let mnemonic =
-            Mnemonic::from_name(split.next().unwrap()).ok_or(Error {
-              inner: ErrorType::BadMnemonic,
-              pos,
-            })?;
+          let mne_name = split.next().unwrap();
+          let mnemonic = Mnemonic::from_name(mne_name).ok_or(Error {
+            inner: ErrorType::BadMnemonic(mne_name),
+            span: span.clone().unwrap(),
+          })?;
           let width = split.next().and_then(Width::from_name);
 
           let addr = inner
@@ -177,41 +206,45 @@ pub fn parse<'asm>(
               Ok(match addr.as_rule() {
                 Rule::AddrAcc => AddrExpr::Acc,
                 Rule::AddrImm => AddrExpr::Imm(parse_operand(
+                  file_name,
                   addr.into_inner().next().unwrap(),
                 )?),
                 Rule::AddrAbs => AddrExpr::Abs(parse_operand(
+                  file_name,
                   addr.into_inner().next().unwrap(),
                 )?),
                 Rule::AddrInd => AddrExpr::Ind(parse_operand(
+                  file_name,
                   addr.into_inner().next().unwrap(),
                 )?),
                 Rule::AddrLongInd => AddrExpr::LongInd(parse_operand(
+                  file_name,
                   addr.into_inner().next().unwrap(),
                 )?),
                 Rule::AddrIdx => {
                   let mut inner = addr.into_inner();
-                  let arg = parse_operand(inner.next().unwrap())?;
+                  let arg = parse_operand(file_name, inner.next().unwrap())?;
                   let idx =
                     IdxReg::from_str(inner.next().unwrap().as_str()).unwrap();
                   AddrExpr::Idx(arg, idx)
                 }
                 Rule::AddrIndIdx => {
                   let mut inner = addr.into_inner();
-                  let arg = parse_operand(inner.next().unwrap())?;
+                  let arg = parse_operand(file_name, inner.next().unwrap())?;
                   let idx =
                     IdxReg::from_str(inner.next().unwrap().as_str()).unwrap();
                   AddrExpr::IndIdx(arg, idx)
                 }
                 Rule::AddrIdxInd => {
                   let mut inner = addr.into_inner();
-                  let arg = parse_operand(inner.next().unwrap())?;
+                  let arg = parse_operand(file_name, inner.next().unwrap())?;
                   let idx =
                     IdxReg::from_str(inner.next().unwrap().as_str()).unwrap();
                   AddrExpr::IdxInd(arg, idx)
                 }
                 Rule::AddrIdxIndIdx => {
                   let mut inner = addr.into_inner();
-                  let arg = parse_operand(inner.next().unwrap())?;
+                  let arg = parse_operand(file_name, inner.next().unwrap())?;
                   let idx =
                     IdxReg::from_str(inner.next().unwrap().as_str()).unwrap();
                   let idx2 =
@@ -220,15 +253,15 @@ pub fn parse<'asm>(
                 }
                 Rule::AddrLongIndIdx => {
                   let mut inner = addr.into_inner();
-                  let arg = parse_operand(inner.next().unwrap())?;
+                  let arg = parse_operand(file_name, inner.next().unwrap())?;
                   let idx =
                     IdxReg::from_str(inner.next().unwrap().as_str()).unwrap();
                   AddrExpr::LongIndIdx(arg, idx)
                 }
                 Rule::AddrMove => {
                   let mut inner = addr.into_inner();
-                  let arg1 = parse_operand(inner.next().unwrap())?;
-                  let arg2 = parse_operand(inner.next().unwrap())?;
+                  let arg1 = parse_operand(file_name, inner.next().unwrap())?;
+                  let arg2 = parse_operand(file_name, inner.next().unwrap())?;
                   AddrExpr::Move(arg1, arg2)
                 }
                 _ => unreachable!(),
@@ -280,9 +313,13 @@ pub fn parse<'asm>(
 }
 
 fn parse_operand<'asm>(
+  file_name: &'asm Path,
   operand: Pair<'asm, Rule>,
 ) -> Result<Operand<'asm>, Error<'asm>> {
-  let pos = operand.as_span().start_pos();
+  let span = Span {
+    name: file_name,
+    span: operand.as_span(),
+  };
   match operand.as_rule() {
     Rule::IntDec | Rule::IntBin | Rule::IntHex => {
       let rule = operand.as_rule();
@@ -332,7 +369,7 @@ fn parse_operand<'asm>(
       let value =
         u32::from_str_radix(&digits, style.radix()).map_err(|_| Error {
           inner: ErrorType::BadInt,
-          pos: pos.clone(),
+          span: span.clone(),
         })?;
       let width = inner
         .next()
@@ -340,7 +377,7 @@ fn parse_operand<'asm>(
         .or(Width::smallest_for(value))
         .ok_or_else(|| Error {
           inner: ErrorType::BadInt,
-          pos,
+          span,
         })?;
 
       let mut value = Int::new(value, width);
@@ -363,7 +400,7 @@ fn parse_operand<'asm>(
       let (value_str, dir) = operand.as_str().split_at(1);
       let value = value_str.parse().map_err(|_| Error {
         inner: ErrorType::BadInt,
-        pos,
+        span,
       })?;
       let digit = Digit::new(value).unwrap();
       if dir == "f" {

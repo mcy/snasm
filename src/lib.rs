@@ -6,6 +6,7 @@
 #![deny(unsafe_code)]
 
 pub mod asm;
+pub mod error;
 pub mod int;
 pub mod isa;
 pub mod link;
