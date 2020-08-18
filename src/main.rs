@@ -8,6 +8,8 @@ use std::fs::File;
 use std::io::Read as _;
 use std::io::Write as _;
 use std::process::exit;
+use std::path::Path;
+use std::path::PathBuf;
 
 use structopt::StructOpt;
 
@@ -40,14 +42,15 @@ pub enum Command {
     in_place: bool,
     
     /// Files to check for formatting.
-    files: Vec<String>,
+    #[structopt(parse(from_os_str))]
+    files: Vec<PathBuf>,
   },
 
   /// Builds a ROM by assembling the given files.
   Build {
     /// File to output the completed ROM to.
-    #[structopt(short = "o", long, default_value = "rom.smc")]
-    output: String,
+    #[structopt(short = "o", long, default_value = "rom.smc", parse(from_os_str))]
+    output: PathBuf,
 
     /// Skips linking and instead prints a textual representation of the
     /// assembled object files.
@@ -55,37 +58,38 @@ pub enum Command {
     dump_objects: bool,
 
     /// Files to assemble and link.
-    files: Vec<String>,
+    #[structopt(parse(from_os_str))]
+    files: Vec<PathBuf>,
   }
 }
 
-fn read_or_die(path: &str) -> String {
+fn read_or_die(path: &Path) -> String {
   match File::open(path) {
     Ok(mut f) => {
       let mut text = String::new();
       if let Err(e) = f.read_to_string(&mut text) {
-        eprintln!("could not read {}: {}", path, e);
+        eprintln!("could not read {}: {}", path.display(), e);
         exit(exit_code::IO_ERROR)
       }
       text
     },
     Err(e) => {
-      eprintln!("could not open {}: {}", path, e);
+      eprintln!("could not open {}: {}", path.display(), e);
       exit(exit_code::IO_ERROR)
     }
   }
 }
 
-fn write_or_die(path: &str, data: &[u8]) {
+fn write_or_die(path: &Path, data: &[u8]) {
   match File::create(path) {
     Ok(mut f) => {
       if let Err(e) = f.write_all(data) {
-        eprintln!("could not write {}: {}", path, e);
+        eprintln!("could not write {}: {}", path.display(), e);
         exit(exit_code::IO_ERROR)
       }
     },
     Err(e) => {
-      eprintln!("could not open {}: {}", path, e);
+      eprintln!("could not open {}: {}", path.display(), e);
       exit(exit_code::IO_ERROR)
     }
   }
@@ -99,12 +103,12 @@ fn main() {
       for path in files {
         let text = read_or_die(&path);
 
-        let source = Source::parse(Some(&path), &text).unwrap();
+        let source = Source::parse(&path, &text).unwrap();
         let formatted = format!("{}", source);
         if text != formatted {
           was_dirty = true;
           if cli.verbose {
-            eprintln!("{} was formatted incorrectly", path)
+            eprintln!("{} was formatted incorrectly", path.display())
           }
           if in_place {
             write_or_die(&path, formatted.as_bytes());
@@ -127,16 +131,16 @@ fn main() {
       let mut sources = Vec::new();
       for (path, text) in &file_texts {
         if cli.verbose {
-          eprintln!("parsing {}", path)
+          eprintln!("parsing {}", path.display())
         }
-        let source = Source::parse(Some(path), text).unwrap();
+        let source = Source::parse(path, text).unwrap();
         sources.push(source)
       }
 
       let mut objects = Vec::new();
       for source in &sources {
         if cli.verbose {
-          eprintln!("assembling {}", source.file_name().unwrap())
+          eprintln!("assembling {}", source.file_name().display())
         }
         let object = asm::assemble(source).unwrap();
         objects.push(object);
@@ -144,7 +148,7 @@ fn main() {
 
       if dump_objects {
         for object in objects {
-          println!("; {}", object.name().unwrap());
+          println!("; {}", object.file_name().display());
           object.dump(std::io::stdout()).unwrap()
         }
         return

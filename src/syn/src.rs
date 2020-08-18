@@ -1,6 +1,7 @@
 //! Top-level syntax components, representing source files.
 
 use std::fmt;
+use std::path::Path;
 
 use crate::syn::atom::Atom;
 use crate::syn::fmt::ByteCounter;
@@ -33,7 +34,7 @@ pub struct Comment<'asm> {
 #[derive(Clone, Debug)]
 pub struct Source<'asm> {
   /// The name of this file.
-  pub(in crate::syn) name: Option<&'asm str>,
+  pub(in crate::syn) name: &'asm Path,
   /// The atoms that make up this file.
   pub(in crate::syn) atoms: Vec<Atom<'asm>>,
 }
@@ -66,14 +67,14 @@ impl_display!(Source<'_>);
 impl<'asm> Source<'asm> {
   /// Parses a source file out of `text`, giving it the given `name`.
   pub fn parse(
-    name: Option<&'asm str>,
+    name: &'asm (impl AsRef<Path> + ?Sized),
     text: &'asm str,
   ) -> Result<Self, Error<'asm>> {
-    parse::parse(name, text)
+    parse::parse(name.as_ref(), text)
   }
 
   /// Returns the name of this source file.
-  pub fn file_name(&self) -> Option<&'asm str> {
+  pub fn file_name(&self) -> &'asm Path {
     self.name
   }
 
@@ -98,22 +99,15 @@ impl<'atom, 'asm> IntoIterator for &'atom Source<'asm> {
 #[derive(Clone)]
 pub struct Span<'asm> {
   /// The name of the file.
-  pub(in crate::syn) name: Option<&'asm str>,
+  pub(in crate::syn) name: &'asm Path,
   /// A span within the file.
   pub(in crate::syn) span: PestSpan<'asm>,
 }
 
 impl<'asm> Span<'asm> {
   /// Returns the name of the file this `Span` refers to.
-  pub fn file_name(&self) -> Option<&'asm str> {
+  pub fn file_name(&self) -> &'asm Path {
     self.name
-  }
-
-  fn name_or(&self) -> &'asm str {
-    match self.name {
-      Some(name) => name,
-      None => "<?>",
-    }
   }
 
   /// Returns the offset at which this `Span` starts.
@@ -151,8 +145,8 @@ impl fmt::Debug for Span<'_> {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     write!(
       f,
-      "{:?}[{}..{}]",
-      self.name_or(),
+      "{}[{}..{}]",
+      self.file_name().display(),
       self.start_byte(),
       self.end_byte()
     )
@@ -162,6 +156,6 @@ impl fmt::Debug for Span<'_> {
 impl fmt::Display for Span<'_> {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     let (line, col) = self.start_position();
-    write!(f, "{:?}:{}:{}", self.name_or(), line + 1, col + 1)
+    write!(f, "{}:{}:{}", self.file_name().display(), line + 1, col + 1)
   }
 }

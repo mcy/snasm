@@ -11,6 +11,7 @@
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::io;
+use std::path::Path;
 
 use crate::int::u24;
 use crate::int::Int;
@@ -25,26 +26,26 @@ use crate::syn::operand::Symbol;
 /// a different 24-bit address.
 #[derive(Debug)]
 pub struct Object<'asm> {
-  name: Option<&'asm str>,
+  name: &'asm Path,
   blocks: HashMap<u24, Block<'asm>>,
   globals: Vec<(Symbol<'asm>, u24)>,
 }
 
 impl<'asm> Object<'asm> {
   /// Creates a new, empty `Object`.
-  pub fn new(name: Option<&'asm str>) -> Self {
+  pub fn new(name: &'asm (impl AsRef<Path> + ?Sized)) -> Self {
     Object {
-      name,
+      name: name.as_ref(),
       blocks: HashMap::new(),
       globals: Vec::new(),
     }
   }
 
-  /// Returns the name of this object, if any.
+  /// Returns the file name of this object.
   ///
   /// This is the same as the name of the file that the object was assembled
   /// from.
-  pub fn name(&self) -> Option<&'asm str> {
+  pub fn file_name(&self) -> &'asm Path {
     self.name
   }
 

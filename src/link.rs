@@ -5,6 +5,7 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::path::Path;
 
 use crate::int::u24;
 use crate::obj::Object;
@@ -25,16 +26,16 @@ pub enum Error<'asm> {
     /// The symbol that was duplicated.
     symbol: Symbol<'asm>,
     /// The name of the first file that tried to define it, if available.
-    first: Option<&'asm str>,
+    first: &'asm Path,
     /// The name of the second file that tried to define it, if available.
-    second: Option<&'asm str>,
+    second: &'asm Path,
   },
   /// Indicates that a symbol was requested, but never defined by any file.
   MissingSymbol {
     /// The symbol that was not defined.
     symbol: Symbol<'asm>,
     /// The file that requested the symbol.
-    filename: Option<&'asm str>,
+    filename: &'asm Path,
   },
   /// Indicates that a relocated symbol was too far for a particular pc-relative
   /// jump.
@@ -45,13 +46,13 @@ pub enum Error<'asm> {
   /// Indicates that two blocks overlap.
   BlockOverlap {
     /// The file and start of the first block.
-    first: (Option<&'asm str>, u24),
+    first: (&'asm Path, u24),
     /// The file and start of the second block.
-    second: (Option<&'asm str>, u24),
+    second: (&'asm Path, u24),
   },
   /// Indicates that a block tried to write to unmapped memory.
   Unmapped {
-    filename: Option<&'asm str>,
+    filename: &'asm Path,
     addr: u24,
   },
 }
@@ -89,7 +90,7 @@ impl<'asm, 'rom, 'obj> Linker<'asm, 'rom, 'obj> {
   }
 
   fn resolve_relocations(&mut self) {
-    let mut global_table = HashMap::<Symbol<'_>, (u24, Option<&str>)>::new();
+    let mut global_table = HashMap::<Symbol<'_>, (u24, &Path)>::new();
 
     for object in self.objects.iter() {
       for (symbol, addr) in object.globals() {
@@ -98,17 +99,17 @@ impl<'asm, 'rom, 'obj> Linker<'asm, 'rom, 'obj> {
             self.errors.push(Error::DuplicateSymbol {
               symbol,
               first: entry.get().1,
-              second: object.name(),
+              second: object.file_name(),
             });
             continue;
           }
-          e => e.or_insert((addr, object.name())),
+          e => e.or_insert((addr, object.file_name())),
         };
       }
     }
 
     for object in self.objects.iter_mut() {
-      let name = object.name();
+      let name = object.file_name();
       for (_, block) in object.blocks_mut() {
         let relocations = block.relocations().copied().collect::<Vec<_>>();
         for relocation in relocations {
@@ -179,8 +180,8 @@ impl<'asm, 'rom, 'obj> Linker<'asm, 'rom, 'obj> {
       if first.is_start && second.is_start {
         has_overlaps = true;
         self.errors.push(Error::BlockOverlap {
-          first: (first.source.name(), first.value),
-          second: (second.source.name(), second.value),
+          first: (first.source.file_name(), first.value),
+          second: (second.source.file_name(), second.value),
         })
       }
     }
@@ -200,7 +201,7 @@ impl<'asm, 'rom, 'obj> Linker<'asm, 'rom, 'obj> {
             Some(byte) => byte,
             None => {
               self.errors.push(Error::Unmapped {
-                filename: object.name(),
+                filename: object.file_name(),
                 addr,
               });
               break;

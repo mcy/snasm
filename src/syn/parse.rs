@@ -1,6 +1,7 @@
 //! The SNASM parser.
 
 use std::mem;
+use std::path::Path;
 
 use pest::error::Error as PestError;
 use pest::error::InputLocation;
@@ -67,7 +68,7 @@ impl From<PestError<Rule>> for ErrorType {
 
 /// Parse `src` into a SNASM file.
 pub fn parse<'asm>(
-  file_name: Option<&'asm str>,
+  file_name: &'asm Path,
   src: &'asm str,
 ) -> Result<Source<'asm>, Error<'asm>> {
   let mut file = Source {
