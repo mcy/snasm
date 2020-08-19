@@ -15,7 +15,6 @@ use std::path::Path;
 
 use crate::int::u24;
 use crate::int::Int;
-use crate::int::Width;
 use crate::isa::Instruction;
 use crate::syn::fmt;
 use crate::syn::operand::Symbol;
@@ -149,13 +148,28 @@ impl<'asm> Object<'asm> {
       }
 
       for relocation in &block.relocations {
-        writeln!(
-          w,
-          ".reloc.{} 0x{:04x} {}",
-          relocation.info.destination_width,
-          relocation.info.instruction_offset,
-          relocation.source
-        )?;
+        match relocation.info.ty {
+          RelocationType::Absolute => writeln!(
+            w,
+            ".reloc.i24 0x{:04x} {}",
+            relocation.info.offset, relocation.source
+          )?,
+          RelocationType::BankRelative(bank) => writeln!(
+            w,
+            ".reloc.i16 0x{:04x} {}@{:02x}",
+            relocation.info.offset, relocation.source, bank
+          )?,
+          RelocationType::AddrRelative16(addr) => writeln!(
+            w,
+            ".reloc.i16 0x{:04x} {}@{:02x}:{:04x}",
+            relocation.info.offset, relocation.source, addr.bank, addr.addr
+          )?,
+          RelocationType::AddrRelative8(addr) => writeln!(
+            w,
+            ".reloc.i8 0x{:04x} {}@{:02x}:{:04x}",
+            relocation.info.offset, relocation.source, addr.bank, addr.addr
+          )?,
+        }
       }
     }
 
@@ -236,40 +250,66 @@ impl<'asm> Block<'asm> {
     &mut self,
     relocation: RelocationInfo,
     value: u24,
-  ) -> bool {
-    let start = self.start;
-    let inst_buf =
-      &mut self.data_mut()[relocation.instruction_offset as usize..];
-    let inst = Instruction::read(&*inst_buf).unwrap();
-
-    // Note: all pc-relative instructions at i16 or smaller.
-    // At this point, assume that `value` is in the same bank.
-    if inst.mnemonic().is_pc_relative() {
-      let mut next_pc = start.addr;
-      next_pc = next_pc.wrapping_add(relocation.instruction_offset as u16);
-      next_pc = next_pc.wrapping_add(inst.encoded_len() as u16);
-
-      let offset = value.addr.wrapping_sub(next_pc) as i16;
-      if inst.mnemonic().is_one_byte_branch() {
-        let offset: i8 = match offset.try_into() {
-          Ok(offset) => offset,
-          _ => return false,
-        };
-
-        inst_buf[1] = offset as u8;
-      } else {
-        inst_buf[..2].copy_from_slice(&offset.to_le_bytes());
+  ) -> Result<(), RelocationError> {
+    let value = match relocation.ty {
+      RelocationType::Absolute => Int::I24(value),
+      RelocationType::BankRelative(bank) => {
+        if bank == value.bank {
+          Int::I16(value.addr)
+        } else {
+          return Err(RelocationError::WrongBank {
+            expected: bank,
+            got: value.bank,
+          });
+        }
       }
-      return true;
-    }
-    // All the awful cases have been dealt with. We can just truncate value if
-    // necessary and write it to the destination.
-    let int = Int::new(value.to_u32(), relocation.destination_width);
-    int
-      .write_le(&mut self.data_mut()[relocation.destination_offset as usize..])
+      RelocationType::AddrRelative16(address) => {
+        if address.bank != value.bank {
+          return Err(RelocationError::WrongBank {
+            expected: address.bank,
+            got: value.bank,
+          });
+        }
+
+        Int::I16(value.addr.wrapping_sub(address.addr))
+      }
+      RelocationType::AddrRelative8(address) => {
+        if address.bank != value.bank {
+          return Err(RelocationError::WrongBank {
+            expected: address.bank,
+            got: value.bank,
+          });
+        }
+
+        let offset = value.addr.wrapping_sub(address.addr);
+        let offset: i8 = match (offset as i16).try_into() {
+          Ok(offset) => offset,
+          _ => return Err(RelocationError::SymbolTooFar),
+        };
+        Int::I8(offset as u8)
+      }
+    };
+
+    value
+      .write_le(&mut self.data[relocation.offset as usize..])
       .expect("the space being overwritten should already be zeroed");
-    true
+    Ok(())
   }
+}
+
+/// An error occuring while relocating a symbol.
+#[derive(Debug)]
+pub enum RelocationError {
+  /// Indicates that the symbol's address was not in the expected bank.
+  WrongBank {
+    /// The bank we wanted.
+    expected: u8,
+    /// The bank we got.
+    got: u8,
+  },
+  /// Indicates that a symbol was too far; that is, a symbol wasn't actually
+  /// within a byte offset range from the `relative_to` field.
+  SymbolTooFar,
 }
 
 /// A relocation for a missing symbol.
@@ -284,15 +324,43 @@ pub struct Relocation<'asm> {
   pub source: Symbol<'asm>,
 }
 
-/// Information describing how to resolve a relocation.
+/// Information describing where a relocation is, and what conditions are
+/// necessary to resolve it.
 #[derive(Copy, Clone, Debug)]
 pub struct RelocationInfo {
-  /// An offset into the containing block indicating where the instruction
-  /// targeted by this relocation is located.
-  pub instruction_offset: u16,
   /// An offset into the containing block poing to the exact place where the
   /// symbol value needs to be written.
-  pub destination_offset: u16,
-  /// The width of the destination: how many bytes need to be actually written.
-  pub destination_width: Width,
+  pub offset: u16,
+  /// The relocation type, which describes how many bytes must be written.
+  pub ty: RelocationType,
+}
+
+/// A type of a relocation.
+///
+/// A `RelocationType` describes how large the relocation is and what
+/// information can be used to compress the symbol's address.
+#[derive(Copy, Clone, Debug)]
+pub enum RelocationType {
+  /// An absolute, 24-bit relocation. No checks necessary.
+  Absolute,
+  /// A bank-relative 16-bit relocation. The bank byte of the symbol *must*
+  /// match the given value.
+  ///
+  /// This type of relocation is useful for most 16-bit addressing modes.
+  BankRelative(u8),
+  /// An address-relative 16-bit relocation. The bank byte of the symbol *must*
+  /// match the bank of the given address. In addition, the lower 16 bits of the
+  /// address will be subtracted from those of the symbol, forming a relative
+  /// offset.
+  ///
+  /// This type of relocation is useful for 16-bit branches.
+  AddrRelative16(u24),
+  /// An address-relative 16-bit relocation. The bank byte of the symbol *must*
+  /// match the bank of the given address. In addition, the lower 16 bits of the
+  /// address will be subtracted from those of the symbol, forming a relative
+  /// offset. In addition, this relative offset must be convertible from `i16`
+  /// to `i8` without loss of precision.
+  ///
+  /// This type of relocation is useful for 16-bit branches.
+  AddrRelative8(u24),
 }

@@ -10,6 +10,7 @@ use std::path::Path;
 
 use crate::error;
 use crate::int::u24;
+use crate::obj;
 use crate::obj::Object;
 use crate::rom::Rom;
 use crate::syn::operand::Symbol;
@@ -39,13 +40,14 @@ pub enum Error<'asm> {
     /// The file that requested the symbol.
     filename: &'asm Path,
   },
-  /// Indicates that a relocated symbol was too far for a particular pc-relative
-  /// jump.
-  SymbolTooFar {
+  /// Indicates a problem resolving a relocation.
+  RelocationError {
     /// The file requesting the symbol.
     filename: &'asm Path,
     /// The symbol that was too far.
     symbol: Symbol<'asm>,
+    /// The error itself.
+    error: obj::RelocationError,
   },
   /// Indicates that two blocks overlap.
   BlockOverlap {
@@ -61,13 +63,30 @@ pub enum Error<'asm> {
 impl fmt::Display for Error<'_> {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     match self {
-      Error::DuplicateSymbol { symbol, first, .. } => write!(f, "tried to redefine {}, first defined in {}", symbol, first.display()),
-      Error::MissingSymbol { symbol, .. } => write!(f, "definition not found for {}", symbol),
-      Error::SymbolTooFar { symbol, .. } => write!(f, "symbol too far for branch: {}", symbol),
-      Error::BlockOverlap { first: (first_file, first_start), second: (second_file, second_start) } =>
-        write!(f, "blocks in {} starting at 0x{:06x} and in {} starting at 0x{:06x} overlap",
-          first_file.display(), first_start, second_file.display(), second_start),
-      Error::Unmapped { addr, .. } => write!(f, "tried to write data to unmapped address 0x{:06x}", addr)
+      Error::DuplicateSymbol { symbol, first, .. } =>
+        write!(f, "tried to redefine {}, first defined in {}",
+          symbol, first.display()),
+      Error::MissingSymbol { symbol, .. } =>
+      write!(f, "definition not found for {}", symbol),
+      Error::RelocationError {
+        symbol,
+        error: obj::RelocationError::WrongBank { expected, got },
+        ..
+      } => write!(f, "expected symbol in bank {:02}, found it in bank {:02}",
+            expected, got),
+      Error::RelocationError {
+        symbol,
+        error: obj::RelocationError::SymbolTooFar,
+        ..
+      } => write!(f, "symbol too far: {}", symbol),
+      Error::BlockOverlap {
+        first: (first_file, first_start),
+        second: (second_file, second_start),
+      } => write!(f, "blocks in {} starting at 0x{:06x} and in {} starting at 0x{:06x} overlap",
+          first_file.display(), first_start,
+          second_file.display(), second_start),
+      Error::Unmapped { addr, .. } =>
+        write!(f, "tried to write data to unmapped address 0x{:06x}", addr)
     }
   }
 }
@@ -77,7 +96,7 @@ impl error::Error for Error<'_> {
     let path = match self {
       Error::DuplicateSymbol { second, .. } => second,
       Error::MissingSymbol { filename, .. } => filename,
-      Error::SymbolTooFar { filename, .. } => filename,
+      Error::RelocationError { filename, .. } => filename,
       Error::BlockOverlap {
         first: (filename, _),
         ..
@@ -159,10 +178,11 @@ impl<'asm, 'rom, 'obj> Linker<'asm, 'rom, 'obj> {
             }
           };
 
-          if !block.resolve_relocation(relocation.info, value) {
-            self.errors.push(Error::SymbolTooFar {
+          if let Err(e) = block.resolve_relocation(relocation.info, value) {
+            self.errors.push(Error::RelocationError {
               filename: name,
               symbol: relocation.source,
+              error: e,
             })
           }
         }

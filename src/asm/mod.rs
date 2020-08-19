@@ -8,9 +8,11 @@ use crate::int::Int;
 use crate::int::Width;
 use crate::isa::Instruction;
 use crate::isa::Mnemonic;
+use crate::obj;
 use crate::obj::Object;
 use crate::obj::Relocation;
 use crate::obj::RelocationInfo;
+use crate::obj::RelocationType;
 use crate::syn::atom::Atom;
 use crate::syn::atom::AtomType;
 use crate::syn::atom::Directive;
@@ -173,6 +175,7 @@ struct Reference<'atom, 'asm> {
   instruction_offset: usize,
   expected_width: Width,
   arg_idx: usize,
+  expected_bank: Option<u8>,
 
   source: SymOrLocal<'asm>,
   cause: &'atom Atom<'asm>,
@@ -419,6 +422,15 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
               //   bank is implicit or not, and put in a relocation.
               // - We've never seen this symbol before. This is an error.
               Operand::Symbol(_) | Operand::Local(_) => {
+                // Now, we compute the current bank, as is relevant to the
+                // instruction being processed.
+                let current_bank: Option<u8> = match self.dbr_state {
+                  _ if inst.mnemonic.uses_pbr() => Some(self.pc.bank),
+                  DbrState::Pc => Some(self.pc.bank),
+                  DbrState::Else => None,
+                  DbrState::Fixed(bank) => Some(bank),
+                };
+
                 let width = inst.width.map(Ok).unwrap_or_else(|| {
                   // First, we pull whatever address information we can out of
                   // the symbol table.
@@ -445,24 +457,16 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                     SymbolValue::Addr(n) => n.bank,
                   };
 
-                  // Now, we compute the current bank, as is relevant to the
-                  // instruction being processed.
-                  let current_bank: Option<u8> = match self.dbr_state {
-                    _ if inst.mnemonic.uses_pbr() => Some(self.pc.bank),
-                    DbrState::Pc => Some(self.pc.bank),
-                    DbrState::Else => None,
-                    DbrState::Fixed(bank) => Some(bank),
-                  };
-
-                  if current_bank == Some(addr_bank) {
+                  let width = if current_bank == Some(addr_bank) {
                     if inst.mnemonic.is_one_byte_branch() {
-                      Ok(Width::I8)
+                      Width::I8
                     } else {
-                      Ok(Width::I16)
+                      Width::I16
                     }
                   } else {
-                    Ok(Width::I24)
-                  }
+                    Width::I24
+                  };
+                  Ok(width)
                 })?;
 
                 let reloc_source = match arg {
@@ -477,6 +481,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                   block_id: block_start,
                   instruction_offset: block.len(),
                   expected_width: width,
+                  expected_bank: current_bank,
                   arg_idx,
                   source: reloc_source,
                   cause: atom,
@@ -563,10 +568,26 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
       }
       .expect("all references are to valid symbols");
 
+      let inst_end_offset =
+        reference.instruction_offset as u16 + inst.encoded_len() as u16;
+      let pc = reference.block_id + inst_end_offset;
+      let relo_type = match reference.expected_width {
+        Width::I16 if inst.mnemonic().is_pc_relative() => {
+          RelocationType::AddrRelative16(pc)
+        }
+        Width::I8 if inst.mnemonic().is_pc_relative() => {
+          RelocationType::AddrRelative8(pc)
+        }
+        Width::I24 => RelocationType::Absolute,
+        Width::I16 => {
+          RelocationType::BankRelative(reference.expected_bank.unwrap())
+        }
+        _ => unreachable!(),
+      };
+
       let relocation = RelocationInfo {
-        instruction_offset: reference.instruction_offset as u16,
-        destination_offset: destination_offset as u16,
-        destination_width: reference.expected_width,
+        offset: destination_offset as u16,
+        ty: relo_type,
       };
 
       let val = match (symbol_value, reference.source) {
@@ -586,8 +607,9 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
         (SymbolValue::Addr(addr), _) => addr,
       };
 
-      if !block.resolve_relocation(relocation, *val) {
-        match reference.source {
+      match block.resolve_relocation(relocation, *val) {
+        Ok(()) => {}
+        Err(obj::RelocationError::SymbolTooFar) => match reference.source {
           SymOrLocal::Sym(sym) => self.errors.push(Error {
             inner: ErrorType::SymbolTooFar(sym),
             cause: reference.cause,
@@ -598,7 +620,8 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
             cause: reference.cause,
             source: self.src,
           }),
-        }
+        },
+        _ => unreachable!(),
       }
     }
   }

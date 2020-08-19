@@ -9,6 +9,8 @@ use std::fmt::Display;
 
 use std::io;
 
+use std::ops::Add;
+use std::ops::AddAssign;
 use std::ops::Neg;
 use std::ops::Not;
 
@@ -295,6 +297,20 @@ impl Not for u24 {
       bank: !self.bank,
       addr: !self.addr,
     }
+  }
+}
+
+impl Add<u16> for u24 {
+  type Output = Self;
+  fn add(mut self, addr: u16) -> Self {
+    self += addr;
+    self
+  }
+}
+
+impl AddAssign<u16> for u24 {
+  fn add_assign(&mut self, addr: u16) {
+    self.addr += addr;
   }
 }
 
