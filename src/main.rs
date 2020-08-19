@@ -68,6 +68,11 @@ pub enum Command {
     #[structopt(long)]
     dump_objects: bool,
 
+    /// Skips linking and instead prints a textual representation of the
+    /// "interesting" parts of the ROM.
+    #[structopt(long)]
+    dump_binary: bool,
+
     /// Files to assemble and link.
     #[structopt(parse(from_os_str))]
     files: Vec<PathBuf>,
@@ -153,6 +158,7 @@ fn main() {
     Command::Build {
       output,
       dump_objects,
+      dump_binary,
       files,
     } => {
       let mut file_texts = Vec::new();
@@ -201,6 +207,10 @@ fn main() {
       let mut rom = LoRom::new();
       if let Err(e) = link::link(&mut rom, &mut objects) {
         e.dump_and_die(exit_code::LINK_ERROR)
+      }
+
+      if dump_binary {
+        rom.dump(std::io::stdout()).unwrap();
       }
 
       write_or_die(&output, &mut rom.into_bytes());

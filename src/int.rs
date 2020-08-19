@@ -51,6 +51,22 @@ impl Int {
     Width::smallest_for(val).map(|w| Self::new(val as u32, w))
   }
 
+  /// Zero-extends this `Int` to the given width.
+  pub fn zero_extend(self, width: Width) -> Self {
+    Self::new(self.to_u32(), width)
+  }
+
+  /// Zero-extends this `Int` to the given width.
+  ///
+  /// Returns `None` if `self` is wider than `width`.
+  pub fn zero_extend_checked(self, width: Width) -> Option<Self> {
+    if self.width() > width {
+      return None;
+    }
+
+    Some(self.zero_extend(width))
+  }
+
   /// Gets the width of this `Int`.
   #[inline]
   pub fn width(self) -> Width {

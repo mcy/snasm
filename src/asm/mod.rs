@@ -402,13 +402,12 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
               //   that the integer we've been given fits in there; otherwise,
               //   it's an error.
               // - In all other cases we just use the existing integer.
-              Operand::Int(int) => {
-                if inst.width.is_none() || inst.width == Some(int.value.width())
-                {
-                  Ok(int.value)
-                } else {
-                  Err(ErrorType::BadIntType)
-                }
+              Operand::Int(int) => match inst.width {
+                Some(width) => match int.value.zero_extend_checked(width) {
+                  Some(val) => Ok(val),
+                  None => Err(ErrorType::BadIntType),
+                },
+                _ => Ok(int.value)
               }
 
               // For symbols, we need to generate a relocation. To do so, we
@@ -506,8 +505,9 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
             }
           };
 
+          // There's no way we can accidentally zero-extend a label... I think.
           let instruction =
-            match Instruction::build_from(inst.mnemonic, operand) {
+            match Instruction::build_from_with_zero_extension(inst.mnemonic, operand) {
               Some(i) => i,
               None => {
                 self.errors.push(Error {
@@ -552,13 +552,19 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
       // instruction, except for the sole two-operand instructions mvn and mvp.
       // Since those are always one-byte operands, the second instruction offset
       // is on the *second* byte after.
+      //
+      // Also, we need to double-check: is the expected width equal to the
+      // instruction length - 1? (For moves, it's (instruction length - 1) / 2.)
+      // Failure of this assertion is always a bug.
       let destination_offset = reference.instruction_offset
         + if reference.arg_idx == 1
           && (inst.mnemonic() == Mnemonic::Mvn
             || inst.mnemonic() == Mnemonic::Mvp)
         {
+          assert_eq!(reference.expected_width, Width::I8);
           2
         } else {
+          assert_eq!(reference.expected_width.bytes(), inst.encoded_len() as u32 - 1);
           1
         };
 

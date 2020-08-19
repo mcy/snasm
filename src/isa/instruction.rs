@@ -48,6 +48,44 @@ macro_rules! addr_helper {
   };
 }
 
+macro_rules! addr_helper_any_match {
+  ($expr:tt, $expr2:tt => $variant:ident($int:ident(_), $int2:ident(_) $($rest:tt)*)) => {
+    AddrExpr::$variant($expr, $expr2 $($rest)*)
+  };
+  ($expr:tt, $expr2:tt => $variant:ident($int:ident(_) $($rest:tt)*)) => {
+    AddrExpr::$variant($expr $($rest)*)
+  };
+  ($expr:tt, $expr2:tt => $variant:ident) => {
+    AddrExpr::$variant
+  };
+}
+
+macro_rules! addr_helper_have_min_size {
+  ($expr:tt, $expr2:tt => $variant:ident($int:ident(_), $int2:ident(_) $($rest:tt)*)) => {
+    $expr.width() <= Width::$int && $expr2.width() <= Width::$int2
+  };
+  ($expr:tt, $expr2:tt => $variant:ident($int:ident(_) $($rest:tt)*)) => {
+    $expr.width() <= Width::$int
+  };
+  ($expr:tt, $expr2:tt => $variant:ident) => {
+    true
+  };
+}
+
+macro_rules! addr_helper_zero_extend {
+  ($expr:tt, $expr2:tt => $variant:ident($int:ident(_), $int2:ident(_) $($rest:tt)*)) => {
+    AddrExpr::$variant(
+      $expr.zero_extend_checked(Width::$int)?,
+      $expr2.zero_extend_checked(Width::$int2)? $($rest)*)
+  };
+  ($expr:tt, $expr2:tt => $variant:ident($int:ident(_) $($rest:tt)*)) => {
+    AddrExpr::$variant($expr.zero_extend_checked(Width::$int)? $($rest)*)
+  };
+  ($expr:tt, $expr2:tt => $variant:ident) => {
+    AddrExpr::$variant
+  };
+}
+
 macro_rules! addr_helper_read {
   ($r:expr => $variant:ident($int:ident(_), $int2:ident(_) $($rest:tt)*)) => {{
     let mut r = $r;
@@ -126,6 +164,37 @@ macro_rules! instructions {
             (Mnemonic::$mne, mode @
               Some(addr_helper!(_, _ => $addr_mode$(($($addr_args)*))?))) =>
               Some(Self { mne, mode, opcode: $opcode }),
+          )*)?)*
+          $($(
+            (Mnemonic::$mne, None) => {
+              Some(Self { mne, mode: None, opcode: $inh_opcode })
+            }
+          )?)*
+          _ => None,
+        }
+      }
+
+      /// Attempts to build an instruction from the given mnemonic and
+      /// addressing mode, performing zero-extension on the operands if
+      /// necessary.
+      ///
+      /// For example, while there is no immediate form of `adc` with an 8-bit
+      /// operand, there is a 16-bit one, which this function will return.
+      ///
+      /// If no such instruction is represenatable, `None` is returned.
+      pub fn build_from_with_zero_extension(
+        mne: Mnemonic,
+        mode: Option<AddrExpr<Int>>
+      ) -> Option<Instruction> {
+        use crate::syn::code::IdxReg::*;
+        match (mne, mode) {
+          $($($(
+            (Mnemonic::$mne,
+              Some(addr_helper_any_match!(a, b => $addr_mode$(($($addr_args)*))?)))
+              if addr_helper_have_min_size!(a, b => $addr_mode$(($($addr_args)*))?) => {
+                let mode = addr_helper_zero_extend!(a, b => $addr_mode$(($($addr_args)*))?);
+                Some(Self { mne, mode: Some(mode), opcode: $opcode })
+              }
           )*)?)*
           $($(
             (Mnemonic::$mne, None) => {
