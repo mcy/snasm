@@ -1,12 +1,14 @@
 //! Types and functions for manipulating SNES ROM binaries.
 //!
 //! The SNES uses various methods for mapping a contiguous ROM image onto its
-//! address space. The `Rom` trait provides a common interface for accessing a
+//! address space. The [`Rom`] trait provides a common interface for accessing a
 //! ROM through its mapped addresses.
 //!
 //! Retro Game Mechanics Explained has a
 //! [good video](https://www.youtube.com/watch?v=-U76YvWdnZM) explaining the
 //! visual layouts of each mapping mode.
+//!
+//! [`Rom`]: trait.Rom.html
 
 use std::io;
 
@@ -14,15 +16,33 @@ use crate::int::u24;
 
 /// Mappings for a SNES ROM.
 ///
-/// This essentially provides a fixed virtual memory map: 24-bit SNES virutal
-/// addresses are mapped to physical ROM address. Multiple SNES addresses may
-/// map to the same ROM address.
+/// This trait abstracts a memory buffer (the "ROM") to an object that can be
+/// read and written to through the SNES address space.
 pub trait Rom {
   /// Returns the number of useable bytes in this ROM.
   fn len(&self) -> usize;
 
-  /// Gets the byte at the SNES address `addr`, if it's been mapped in.
-  fn at(&mut self, addr: u24) -> Option<&mut u8>;
+  /// Gets a reference to the byte at `addr`, if it's been mapped in.
+  fn at(&self, addr: u24) -> Option<&u8>;
+
+  /// Gets a mutable reference to the byte at `addr`, if it's been mapped in.
+  fn at_mut(&mut self, addr: u24) -> Option<&mut u8>;
+
+  /// Copies a contiguous chunk of this ROM to `data`, starting at `addr`.
+  ///
+  /// If this function would access to an unmapped address, `Err` is returned
+  /// with that address. If `Err` is returned, the read need not have completed
+  /// up to that point.
+  fn read(&self, addr: u24, data: &mut [u8]) -> Result<(), u24>;
+
+  /// Copies `data` to this ROM, starting at `addr`.
+  ///
+  /// This function behaves *as if* each byte was copied in sequence.
+  ///
+  /// If this function would access to an unmapped address, `Err` is returned
+  /// with that address. If `Err` is returned, the write need not have completed
+  /// up to that point.
+  fn write(&mut self, addr: u24, data: &[u8]) -> Result<(), u24>;
 }
 
 /// A LoROM-mapped ROM.
@@ -112,6 +132,19 @@ impl LoRom {
     Some(rom_bank_offset | ((addr.addr & 0x7fff) as u32))
   }
 
+  /// Computes the largest SNES-address and ROM-address contiguous range
+  /// starting at the given address and having at most the given length.
+  ///
+  /// Returns `None` if `addr` is unmapped.
+  fn largest_congituous(addr: u24, len: u32) -> Option<(u32, u32)> {
+    // This condition requires only that `addr` be mapped, and continues to the
+    // end of the half-bank `addr` is in.
+    let rom_addr = Self::map(addr)?;
+    let max_len = 0x8000 - (addr.addr & 0x7fff);
+    let rom_len = len.min(max_len as u32);
+    Some((rom_addr, rom_addr + rom_len))
+  }
+
   /// Creates a new `LoRom` filled with zeroes.
   pub fn new() -> Self {
     Self::filled_with(0)
@@ -161,8 +194,46 @@ impl Rom for LoRom {
     Self::LEN
   }
 
-  fn at(&mut self, addr: u24) -> Option<&mut u8> {
+  fn at(&self, addr: u24) -> Option<&u8> {
+    Self::map(addr).map(|a| &self.bytes[a as usize])
+  }
+
+  fn at_mut(&mut self, addr: u24) -> Option<&mut u8> {
     Self::map(addr).map(move |a| &mut self.bytes[a as usize])
+  }
+
+  fn read(&self, mut addr: u24, mut data: &mut [u8]) -> Result<(), u24> {
+    while !data.is_empty() {
+      let (start, end) = match Self::largest_congituous(addr, data.len() as u32) {
+        Some(addrs) => addrs,
+        None => return Err(addr),
+      };
+      let rom_bytes = &self.bytes[start as usize..end as usize];
+      let len = rom_bytes.len();
+      assert!(len <= u16::MAX as usize);
+
+      data[..len].copy_from_slice(rom_bytes);
+      data = &mut data[len..];
+      addr = addr.offset_full(len as i16);
+    }
+    Ok(())
+  }
+
+  fn write(&mut self, mut addr: u24, mut data: &[u8]) -> Result<(), u24> {
+    while !data.is_empty() {
+      let (start, end) = match Self::largest_congituous(addr, data.len() as u32) {
+        Some(addrs) => addrs,
+        None => return Err(addr),
+      };
+      let rom_bytes = &mut self.bytes[start as usize..end as usize];
+      let len = rom_bytes.len();
+      assert!(len <= u16::MAX as usize);
+
+      rom_bytes.copy_from_slice(&data[..len]);
+      data = &data[len..];
+      addr = addr.offset_full(len as i16);
+    }
+    Ok(())
   }
 }
 

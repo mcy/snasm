@@ -250,21 +250,11 @@ impl<'asm, 'rom, 'obj> Linker<'asm, 'rom, 'obj> {
     // ROM.
     for object in self.objects.iter() {
       for (start, block) in object.blocks() {
-        for i in 0..block.len() {
-          let mut addr = start;
-          addr.addr += i as u16;
-          let byte = match self.rom.at(addr) {
-            Some(byte) => byte,
-            None => {
-              self.errors.push(Error::Unmapped {
-                filename: object.file_name(),
-                addr,
-              });
-              break;
-            }
-          };
-
-          *byte = block.data()[i];
+        if let Err(addr) = self.rom.write(start, block.data()) {
+          self.errors.push(Error::Unmapped {
+            filename: object.file_name(),
+            addr,
+          });
         }
       }
     }
