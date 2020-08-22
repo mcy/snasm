@@ -42,8 +42,8 @@ pub struct Cli {
 
 #[derive(StructOpt)]
 pub enum Command {
-  /// Format source files. Returns non-zero if files are unformatted.
-  Format {
+  /// Format source files; returns non-zero if files are unformatted.
+  Fmt {
     /// Modify files in-place with their formatted equivalents.
     #[structopt(short = "i", long)]
     in_place: bool,
@@ -53,8 +53,8 @@ pub enum Command {
     files: Vec<PathBuf>,
   },
 
-  /// Builds a ROM by assembling the given files.
-  Build {
+  /// Assembles a ROM from the given files.
+  As {
     /// File to output the completed ROM to.
     #[structopt(
       short = "o",
@@ -80,7 +80,7 @@ pub enum Command {
   },
 
   /// Disassembles a ROM using supplied metadata.
-  Disassemble {
+  Dis {
     /// The ROM to disassemble.
     #[structopt(
       short = "i",
@@ -140,7 +140,7 @@ fn write_or_die(path: &Path, data: &[u8]) {
 fn main() {
   let cli = Cli::from_args();
   match cli.command {
-    Command::Format { in_place, files } => {
+    Command::Fmt { in_place, files } => {
       let mut was_dirty = false;
       let files = files
         .into_iter()
@@ -181,7 +181,7 @@ fn main() {
       }
     }
 
-    Command::Build {
+    Command::As {
       output,
       dump_objects,
       dump_binary,
@@ -242,7 +242,7 @@ fn main() {
       write_or_die(&output, &mut rom.into_bytes());
     }
 
-    Command::Disassemble {
+    Command::Dis {
       input, metadata,
     } => {
       let mut rom_bytes = read_or_die(&input);
