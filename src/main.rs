@@ -102,7 +102,7 @@ fn read_utf8_or_die(path: &Path) -> String {
 }
 
 fn read_json_or_die<T: serde::de::DeserializeOwned>(path: &Path) -> T {
-  match serde_json::from_str(&read_utf8_or_die(path)) {
+  match json5::from_str(&read_utf8_or_die(path)) {
     Ok(x) => x,
     Err(e) => {
       eprintln!("could not parse {}: {}", path.display(), e);
