@@ -157,6 +157,14 @@ impl LoRom {
     }
   }
 
+  /// Creates a new `LoRom` from the given bytes.
+  ///
+  /// `bytes` will be padded to four mebibytes with zeroes.
+  pub fn from_bytes(mut bytes: Vec<u8>) -> Self {
+    bytes.resize(Self::LEN, 0);
+    Self { bytes: bytes.into_boxed_slice() }
+  }
+
   /// Dumps the (interesting) contents of this ROM to the given `Write`.
   pub fn dump(&self, mut w: impl io::Write) -> io::Result<()> {
     let mut ascii_str = String::new();

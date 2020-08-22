@@ -6,13 +6,14 @@
 
 use std::fmt;
 use std::fmt::Display;
-
 use std::io;
-
 use std::ops::Add;
 use std::ops::AddAssign;
 use std::ops::Neg;
 use std::ops::Not;
+
+use serde::Deserialize;
+use serde::Serialize;
 
 /// A variable-width integer of 8, 16, or 24 bits.
 ///
@@ -206,6 +207,7 @@ impl Not for Int {
 /// A 24-bit 64816 address.
 #[allow(non_camel_case_types)]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
+#[derive(Deserialize, Serialize)]
 pub struct u24 {
   /// The "bank byte", that is, the top byte of the address determining which
   /// bank it corresponds to.

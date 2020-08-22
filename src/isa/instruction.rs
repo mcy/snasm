@@ -1,6 +1,7 @@
 //! The 65816 instruction set proper.
 
 use std::io;
+use std::iter;
 
 use crate::int::Int;
 use crate::int::Width;
@@ -33,6 +34,25 @@ impl Instruction {
   /// Gets this instruction's unique opcode.
   pub fn opcode(&self) -> u8 {
     self.opcode
+  }
+
+  /// Returns an iterator over all instructions readable from `r`.
+  ///
+  /// The iterator will start returning `None` once `EOF` is reached.
+  pub fn stream(mut r: impl io::Read) -> impl Iterator<Item=io::Result<Instruction>> {
+    iter::from_fn(move || {
+      match Self::read(&mut r) {
+        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => None,
+        x => Some(x)
+      }
+    }).fuse()
+  }
+
+  /// Returns an iterator over the encoded bytes of this `Instruction`.
+  pub fn bytes(&self) -> impl Iterator<Item=u8> {
+    let mut bytes = Vec::<u8>::new();
+    self.write(&mut bytes).unwrap();
+    bytes.into_iter()
   }
 }
 

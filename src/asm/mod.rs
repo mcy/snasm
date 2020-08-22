@@ -11,6 +11,7 @@ use crate::isa::Instruction;
 use crate::isa::Mnemonic;
 use crate::obj;
 use crate::obj::Object;
+use crate::obj::OffsetType;
 use crate::obj::Relocation;
 use crate::obj::RelocationInfo;
 use crate::obj::RelocationType;
@@ -369,7 +370,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
               };
 
               let block = self.object.get_block_mut(block_start).unwrap();
-              let mut data = block.begin_data_offset();
+              let mut data = block.begin_offset(OffsetType::Data);
               for _ in 0..count {
                 for val in values {
                   let len = val.width().bytes() as u16;
@@ -533,7 +534,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
             };
 
           let block = self.object.get_block_mut(block_start).unwrap();
-          let _ = instruction.write(block.begin_code_offset());
+          let _ = instruction.write(block.begin_offset(OffsetType::Code));
         }
         AtomType::Empty => continue,
       }

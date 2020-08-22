@@ -13,6 +13,9 @@ use std::convert::TryInto;
 use std::io;
 use std::path::Path;
 
+use serde::Deserialize;
+use serde::Serialize;
+
 use crate::int::u24;
 use crate::int::Int;
 use crate::isa::Instruction;
@@ -49,8 +52,8 @@ impl<'asm> Object<'asm> {
   }
 
   /// Creates a new, empty block at the given starting address.
-  pub fn new_block(&mut self, start: u24) {
-    self.blocks.insert(start, Block::new(start));
+  pub fn new_block(&mut self, start: u24) -> &mut Block<'asm> {
+    self.blocks.entry(start).or_insert(Block::new(start))
   }
 
   /// Gets a reference to the block at the given starting address, if it exists.
@@ -104,32 +107,38 @@ impl<'asm> Object<'asm> {
       }
       writeln!(w, ".origin 0x{:06x}", addr)?;
       for i in 0..block.offsets.len() {
-        let (start, ty) = block.offsets[i];
+        let offset = block.offsets[i];
+        let start = offset.start as usize;
         let end = block
           .offsets
           .get(i + 1)
-          .map(|(idx, _)| idx)
-          .copied()
+          .map(|offset| offset.start as usize)
           .unwrap_or(block.data.len());
 
-        match ty {
+        match offset.ty {
           OffsetType::Code => {
-            write!(w, "{:06x}:", addr.to_u32() + start as u32)?;
-            for j in start..end {
-              write!(w, "  {:02x}", block.data[j])?;
-            }
+            let mut addr = addr.to_u32() + start as u32;
+            for instruction in Instruction::stream(&block.data[start..end]) {
+              let instruction = instruction?;
 
-            let expected_len = (end - start) * 4;
-            let padding = 16 - expected_len;
-            for _ in 0..padding {
-              write!(w, " ")?;
-            }
-            if let Ok(instruction) = Instruction::read(&block.data[start..]) {
+              write!(w, "{:06x}:", addr)?;
+              for byte in instruction.bytes() {
+                write!(w, "  {:02x}", byte)?;
+              }
+
+              let expected_len = instruction.encoded_len() * 4;
+              let padding = 16 - expected_len;
+              for _ in 0..padding {
+                write!(w, " ")?;
+              }
+
+              addr += instruction.encoded_len() as u32;
               fmt::print_instruction(
                 fmt::Options::default(),
                 instruction,
                 &mut w,
-              )?
+              )?;
+              writeln!(w, "")?;
             }
           }
           OffsetType::Data => {
@@ -142,9 +151,9 @@ impl<'asm> Object<'asm> {
               }
               write!(w, "  {:02x}", block.data[j])?;
             }
+            writeln!(w, "")?;
           }
         }
-        writeln!(w, "")?;
       }
 
       for relocation in &block.relocations {
@@ -181,16 +190,39 @@ impl<'asm> Object<'asm> {
 ///
 /// A `Block` is a chunk of assmbled data, potentially requiring relocations
 /// to be complete. Each `Block` roughly corresponds to an `.origin` directive.
+///
+/// Because SNASM does not allow the program counter to overflow the end of a 
+/// block, `Block` offsets can be assumed to be 16-bit.
 #[derive(Debug)]
 pub struct Block<'asm> {
   start: u24,
   data: Vec<u8>,
-  offsets: Vec<(usize, OffsetType)>,
+  offsets: Vec<Offset>,
   relocations: Vec<Relocation<'asm>>,
 }
+
+/// An "offset" within a [`Block`], describing whether it contains code or some
+/// kind of data.
+///
+/// [`Block`]: struct.Block.html
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-enum OffsetType {
+#[derive(Deserialize, Serialize)]
+pub struct Offset {
+  /// The data offset that this `Offset` begins at.
+  pub start: u16,
+  /// The type of this `Offset`.
+  pub ty: OffsetType,
+}
+
+/// A type of [`Offset`], indicating whether it was declared as code or data.
+///
+/// [`Offset`]: struct.Offset.html
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Deserialize, Serialize)]
+pub enum OffsetType {
+  /// Indicates an offset that was defined as processor instructions.
   Code,
+  /// Indicates an offset that was defined as data.
   Data,
 }
 
@@ -215,17 +247,29 @@ impl<'asm> Block<'asm> {
     &mut self.data
   }
 
-  /// Begins a new code offset, returning a sink to write the new instruction
-  /// to.
-  pub fn begin_code_offset<'a>(&'a mut self) -> impl io::Write + 'a {
-    self.offsets.push((self.data.len(), OffsetType::Code));
+  /// Begins a new `Offset`.
+  ///
+  /// Returning a sink to write data to.
+  pub fn begin_offset<'a>(&'a mut self, ty: OffsetType) -> impl io::Write + 'a {
+    self.offsets.push(Offset {
+      start: self.data.len() as u16,
+      ty,
+    });
     &mut self.data
   }
 
-  /// Begins a new data offset, returning a sink to write the new data to.
-  pub fn begin_data_offset<'a>(&'a mut self) -> impl io::Write + 'a {
-    self.offsets.push((self.data.len(), OffsetType::Data));
-    &mut self.data
+  /// Creates a new `Offset` filled with zeroes.
+  ///
+  /// Returns the zeroed offset.
+  pub fn zeroed_offset(&mut self, ty: OffsetType, len: usize) -> &mut [u8] {
+    self.offsets.push(Offset {
+      start: self.data.len() as u16,
+      ty,
+    });
+    let old_len = self.data.len();
+    let new_len = old_len + len;  
+    self.data.resize(new_len, 0);
+    &mut self.data[old_len..new_len]
   }
 
   /// Returns the length of this block.
