@@ -13,7 +13,9 @@ use std::ops::Neg;
 use std::ops::Not;
 
 use serde::Deserialize;
+use serde::Deserializer;
 use serde::Serialize;
+use serde::Serializer;
 
 /// A variable-width integer of 8, 16, or 24 bits.
 ///
@@ -216,8 +218,6 @@ impl Not for Int {
   Hash,
   Debug,
   Default,
-  Deserialize,
-  Serialize,
 )]
 pub struct u24 {
   /// The "bank byte", that is, the top byte of the address determining which
@@ -340,6 +340,28 @@ impl Add<u16> for u24 {
 impl AddAssign<u16> for u24 {
   fn add_assign(&mut self, addr: u16) {
     self.addr += addr;
+  }
+}
+
+impl<'de> Deserialize<'de> for u24 {
+  fn deserialize<D>(de: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>
+  {
+    let int = u64::deserialize(de)?;
+    if int > 0xffffff {
+      return Err(serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(int), &"24-bit integer"));
+    }
+    Ok(u24::from_u32(int as u32))
+  }
+}
+
+impl Serialize for u24 {
+  fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer 
+  {
+    self.to_u32().serialize(ser)
   }
 }
 
