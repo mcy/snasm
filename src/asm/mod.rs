@@ -10,8 +10,8 @@ use crate::int::Width;
 use crate::isa::Instruction;
 use crate::isa::Mnemonic;
 use crate::obj;
+use crate::obj::dbg::OffsetType;
 use crate::obj::Object;
-use crate::obj::OffsetType;
 use crate::obj::Relocation;
 use crate::obj::RelocationInfo;
 use crate::obj::RelocationType;
@@ -173,7 +173,7 @@ pub(in crate::asm) enum DbrState {
 /// existing code, or emitting relocations.
 struct Reference<'atom, 'asm> {
   block_id: u24,
-  instruction_offset: usize,
+  instruction_offset: u16,
   expected_width: Width,
   arg_idx: usize,
   expected_bank: Option<u8>,
@@ -408,8 +408,8 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
                   Some(val) => Ok(val),
                   None => Err(ErrorType::BadIntType),
                 },
-                _ => Ok(int.value)
-              }
+                _ => Ok(int.value),
+              },
 
               // For symbols, we need to generate a relocation. To do so, we
               // need to know
@@ -507,18 +507,20 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
           };
 
           // There's no way we can accidentally zero-extend a label... I think.
-          let instruction =
-            match Instruction::build_from_with_zero_extension(inst.mnemonic, operand) {
-              Some(i) => i,
-              None => {
-                self.errors.push(Error {
-                  inner: ErrorType::BadInstruction(inst.mnemonic, operand),
-                  cause: atom,
-                  source: self.src,
-                });
-                continue;
-              }
-            };
+          let instruction = match Instruction::build_from_with_zero_extension(
+            inst.mnemonic,
+            operand,
+          ) {
+            Some(i) => i,
+            None => {
+              self.errors.push(Error {
+                inner: ErrorType::BadInstruction(inst.mnemonic, operand),
+                cause: atom,
+                source: self.src,
+              });
+              continue;
+            }
+          };
 
           self.pc.addr =
             match self.pc.addr.checked_add(instruction.encoded_len() as u16) {
@@ -546,7 +548,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
   fn resolve_references(&mut self) {
     for reference in &self.references {
       let block = self.object.get_block_mut(reference.block_id).unwrap();
-      let inst_buf = &mut block.data_mut()[reference.instruction_offset..];
+      let inst_buf = &mut block[reference.instruction_offset..];
       let inst = Instruction::read(&*inst_buf).unwrap();
 
       // Every single operand is immediately after the first byte of the
@@ -565,7 +567,10 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
           assert_eq!(reference.expected_width, Width::I8);
           2
         } else {
-          assert_eq!(reference.expected_width.bytes(), inst.encoded_len() as u32 - 1);
+          assert_eq!(
+            reference.expected_width.bytes(),
+            inst.encoded_len() as u32 - 1
+          );
           1
         };
 
@@ -614,7 +619,7 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
         (SymbolValue::Addr(addr), _) => addr,
       };
 
-      match block.resolve_relocation(relocation, *val) {
+      match relocation.resolve_in(block, *val) {
         Ok(()) => {}
         Err(obj::RelocationError::SymbolTooFar) => match reference.source {
           SymOrLocal::Sym(sym) => self.errors.push(Error {

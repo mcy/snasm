@@ -39,17 +39,18 @@ impl Instruction {
   /// Returns an iterator over all instructions readable from `r`.
   ///
   /// The iterator will start returning `None` once `EOF` is reached.
-  pub fn stream(mut r: impl io::Read) -> impl Iterator<Item=io::Result<Instruction>> {
-    iter::from_fn(move || {
-      match Self::read(&mut r) {
-        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => None,
-        x => Some(x)
-      }
-    }).fuse()
+  pub fn stream(
+    mut r: impl io::Read,
+  ) -> impl Iterator<Item = io::Result<Instruction>> {
+    iter::from_fn(move || match Self::read(&mut r) {
+      Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => None,
+      x => Some(x),
+    })
+    .fuse()
   }
 
   /// Returns an iterator over the encoded bytes of this `Instruction`.
-  pub fn bytes(&self) -> impl Iterator<Item=u8> {
+  pub fn bytes(&self) -> impl Iterator<Item = u8> {
     let mut bytes = Vec::<u8>::new();
     self.write(&mut bytes).unwrap();
     bytes.into_iter()

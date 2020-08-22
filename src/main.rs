@@ -14,9 +14,9 @@ use structopt::StructOpt;
 
 use snasm::asm;
 use snasm::dis;
-use snasm::dis::meta::Metadata;
 use snasm::error::Errors;
 use snasm::link;
+use snasm::obj::dbg::Metadata;
 use snasm::rom::LoRom;
 use snasm::syn::src::Source;
 
@@ -82,20 +82,11 @@ pub enum Command {
   /// Disassembles a ROM using supplied metadata.
   Dis {
     /// The ROM to disassemble.
-    #[structopt(
-      short = "i",
-      long,
-      parse(from_os_str)
-    )]
+    #[structopt(short = "i", long, parse(from_os_str))]
     input: PathBuf,
 
-
     /// The metadata describing how to disassemble the ROM.
-    #[structopt(
-      short = "m",
-      long,
-      parse(from_os_str)
-    )]
+    #[structopt(short = "m", long, parse(from_os_str))]
     metadata: PathBuf,
   },
 }
@@ -242,15 +233,17 @@ fn main() {
       write_or_die(&output, &mut rom.into_bytes());
     }
 
-    Command::Dis {
-      input, metadata,
-    } => {
+    Command::Dis { input, metadata } => {
       let mut rom_bytes = read_or_die(&input);
       // If first 0x200 bytes are mostly zero, it's a dumb header we should rip
       // out.
       if rom_bytes.len() >= 0x200 {
-        let zeroes = (0..0x200).into_iter().filter(|&i| rom_bytes[i] == 0).count();
-        if zeroes > 0x1d0 { // Arbitrary constant.
+        let zeroes = (0..0x200)
+          .into_iter()
+          .filter(|&i| rom_bytes[i] == 0)
+          .count();
+        if zeroes > 0x1d0 {
+          // Arbitrary constant.
           let old_bytes = mem::take(&mut rom_bytes);
           rom_bytes.resize(old_bytes.len() - 0x200, 0);
           rom_bytes.copy_from_slice(&old_bytes[0x200..]);

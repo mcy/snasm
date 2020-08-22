@@ -206,8 +206,19 @@ impl Not for Int {
 
 /// A 24-bit 64816 address.
 #[allow(non_camel_case_types)]
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
-#[derive(Deserialize, Serialize)]
+#[derive(
+  Copy,
+  Clone,
+  PartialEq,
+  Eq,
+  PartialOrd,
+  Ord,
+  Hash,
+  Debug,
+  Default,
+  Deserialize,
+  Serialize,
+)]
 pub struct u24 {
   /// The "bank byte", that is, the top byte of the address determining which
   /// bank it corresponds to.

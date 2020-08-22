@@ -178,7 +178,7 @@ impl<'asm, 'rom, 'obj> Linker<'asm, 'rom, 'obj> {
             }
           };
 
-          if let Err(e) = block.resolve_relocation(relocation.info, value) {
+          if let Err(e) = relocation.info.resolve_in(block, value) {
             self.errors.push(Error::RelocationError {
               filename: name,
               symbol: relocation.source,
@@ -250,7 +250,7 @@ impl<'asm, 'rom, 'obj> Linker<'asm, 'rom, 'obj> {
     // ROM.
     for object in self.objects.iter() {
       for (start, block) in object.blocks() {
-        if let Err(addr) = self.rom.write(start, block.data()) {
+        if let Err(addr) = self.rom.write(start, &block[..]) {
           self.errors.push(Error::Unmapped {
             filename: object.file_name(),
             addr,

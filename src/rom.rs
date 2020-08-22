@@ -162,7 +162,9 @@ impl LoRom {
   /// `bytes` will be padded to four mebibytes with zeroes.
   pub fn from_bytes(mut bytes: Vec<u8>) -> Self {
     bytes.resize(Self::LEN, 0);
-    Self { bytes: bytes.into_boxed_slice() }
+    Self {
+      bytes: bytes.into_boxed_slice(),
+    }
   }
 
   /// Dumps the (interesting) contents of this ROM to the given `Write`.
@@ -212,7 +214,8 @@ impl Rom for LoRom {
 
   fn read(&self, mut addr: u24, mut data: &mut [u8]) -> Result<(), u24> {
     while !data.is_empty() {
-      let (start, end) = match Self::largest_congituous(addr, data.len() as u32) {
+      let (start, end) = match Self::largest_congituous(addr, data.len() as u32)
+      {
         Some(addrs) => addrs,
         None => return Err(addr),
       };
@@ -229,7 +232,8 @@ impl Rom for LoRom {
 
   fn write(&mut self, mut addr: u24, mut data: &[u8]) -> Result<(), u24> {
     while !data.is_empty() {
-      let (start, end) = match Self::largest_congituous(addr, data.len() as u32) {
+      let (start, end) = match Self::largest_congituous(addr, data.len() as u32)
+      {
         Some(addrs) => addrs,
         None => return Err(addr),
       };
