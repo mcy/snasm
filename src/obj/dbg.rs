@@ -46,7 +46,7 @@ pub struct Block {
   #[serde(default)]
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(with = "kv_pairs")]
-  pub labels: BTreeMap<u16, Label>,
+  pub labels: BTreeMap<u16, Vec<Label>>,
 }
 
 /// A program label within a [`Block`].

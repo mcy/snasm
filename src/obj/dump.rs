@@ -3,7 +3,7 @@
 use std::io;
 
 use crate::isa::Instruction;
-use crate::obj::dbg::OffsetType;
+use crate::obj::dbg;
 use crate::obj::relo::RelocationType;
 use crate::obj::Object;
 use crate::syn::fmt;
@@ -21,15 +21,26 @@ pub fn dump(obj: &Object, mut w: impl io::Write) -> io::Result<()> {
       continue;
     }
     writeln!(w, ".origin 0x{:06x}", addr)?;
+
+    let labels = crate::obj::make_multimap(block.labels());
     for offset in block.offsets() {
       let start = offset.start;
       let end = start + offset.len;
 
       match offset.ty {
-        OffsetType::Code => {
+        dbg::OffsetType::Code => {
           let mut addr = addr.to_u32() + start as u32;
           for instruction in Instruction::stream(&block[start..end]) {
             let instruction = instruction?;
+            let block_offset = (addr - block.start().to_u32()) as u16;
+            if let Some(labels) = labels.get(&block_offset) {
+              for label in labels {
+                match label {
+                  dbg::Label::Symbol(sym) => writeln!(w, "{}:", sym.name)?,
+                  dbg::Label::Local(digit) => writeln!(w, "{}:", digit)?,
+                }
+              }
+            }
 
             write!(w, "{:06x}:", addr)?;
             for byte in instruction.bytes() {
@@ -51,15 +62,32 @@ pub fn dump(obj: &Object, mut w: impl io::Write) -> io::Result<()> {
             writeln!(w, "")?;
           }
         }
-        OffsetType::Data => {
+        dbg::OffsetType::Data => {
+          let mut bytes_since_newline = 0usize;
           for (n, j) in (start..end).into_iter().enumerate() {
-            if n % 8 == 0 {
-              if n != 0 {
+            let mut has_label = false;
+            if let Some(labels) = labels.get(&j) {
+              if bytes_since_newline != 0 {
+                writeln!(w, "")?;
+              }
+              for label in labels {
+                match label {
+                  dbg::Label::Symbol(sym) => writeln!(w, "{}:", sym.name)?,
+                  dbg::Label::Local(digit) => writeln!(w, "{}:", digit)?,
+                }
+              }
+              has_label = true;
+              bytes_since_newline = 0;
+            }
+
+            if bytes_since_newline % 8 == 0 {
+              if !has_label && bytes_since_newline != 0 {
                 writeln!(w, "")?;
               }
               write!(w, "{:06x}:", addr.to_u32() + start as u32 + n as u32)?;
             }
             write!(w, "  {:02x}", block[j])?;
+            bytes_since_newline += 1;
           }
           writeln!(w, "")?;
         }

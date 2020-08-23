@@ -9,6 +9,7 @@
 //! linker.
 
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io;
 use std::path::Path;
@@ -107,15 +108,27 @@ impl<'asm> Object<'asm> {
     debug: &'asm dbg::File,
   ) -> Object<'asm> {
     let mut object = Object::new(&debug.name);
-    for region in &debug.blocks {
-      let block = object.new_block(region.start);
-      for offset in &region.offsets {
+    let mut globals = Vec::new();
+    for dbg_block in &debug.blocks {
+      let block = object.new_block(dbg_block.start);
+      for offset in &dbg_block.offsets {
         let bytes = block.zeroed_offset(offset.ty, offset.len);
         rom
-          .read(region.start.offset(offset.start as i16), bytes)
+          .read(dbg_block.start.offset(offset.start as i16), bytes)
           .expect("this error should be handled gracefully");
       }
+
+      for (offset, labels) in &dbg_block.labels {
+        for label in labels {
+          block.add_label_at(label.clone(), *offset);
+          if let dbg::Label::Symbol(sym) = label {
+            globals.push((Symbol { name: &sym.name }, block.start().offset(*offset as i16)));
+          }
+        }
+      }      
     }
+
+    object.globals = globals;
     object
   }
 
@@ -215,16 +228,33 @@ impl<'asm> Object<'asm> {
     };
 
     for (_, block) in self.blocks() {
-      let block = dbg::Block {
+      let mut dbg_block = dbg::Block {
         start: block.start(),
         len: block.len(),
         offsets: block.offsets().cloned().collect(),
         labels: BTreeMap::new(),
       };
 
-      file.blocks.push(block);
+      for (offset, label) in block.labels() {
+        dbg_block.labels.entry(*offset).or_insert(Vec::new()).push(label.clone())
+      }
+
+      file.blocks.push(dbg_block);
     }
 
     file
   }
+}
+
+/// Convenience function for putting the elements of a Vec<(K, V)> into a
+/// temporary HashMap<&K, Vec<&V>> lookup table.
+pub(in crate::obj) fn make_multimap<'a, K, V>(pairs: impl IntoIterator<Item=&'a(K, V)>) -> HashMap<&'a K, Vec<&'a V>>
+  where
+    K: Eq + std::hash::Hash,
+{
+  let mut map = HashMap::new();
+  for (k, v) in pairs {
+    map.entry(k).or_insert(Vec::new()).push(v);
+  }
+  map
 }

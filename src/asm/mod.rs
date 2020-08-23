@@ -10,6 +10,7 @@ use crate::int::Width;
 use crate::isa::Instruction;
 use crate::isa::Mnemonic;
 use crate::obj;
+use crate::obj::dbg;
 use crate::obj::dbg::OffsetType;
 use crate::obj::Object;
 use crate::obj::Relocation;
@@ -304,9 +305,14 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
     for (idx, atom) in self.src.iter().enumerate() {
       match &atom.inner {
         AtomType::Label(sym) => {
+          self.object.get_block_mut(block_start).unwrap().add_label(dbg::Label::Symbol(dbg::Symbol {
+            name: sym.name.into(),
+            is_global: false,  // Debuginfo simplification will fix this up.
+          }));
           self.symbols.lookup(*sym).unwrap().1 = SymbolValue::Addr(self.pc)
         }
         AtomType::LocalLabel(digit) => {
+          self.object.get_block_mut(block_start).unwrap().add_label(dbg::Label::Local(digit.into_inner()));
           self.symbols.lookup_local_at_def(*digit, idx).unwrap().1 =
             SymbolValue::Addr(self.pc)
         }
