@@ -8,11 +8,13 @@
 //! Additionally, each object advertises a list of global symbols for use by the
 //! linker.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::io;
 use std::path::Path;
 
 use crate::int::u24;
+use crate::rom::Rom;
 use crate::syn::operand::Symbol;
 
 mod block;
@@ -31,7 +33,7 @@ pub mod dbg;
 #[derive(Debug)]
 pub struct Object<'asm> {
   name: &'asm Path,
-  blocks: HashMap<u24, Block<'asm>>,
+  blocks: BTreeMap<u24, Block<'asm>>,
   globals: Vec<(Symbol<'asm>, u24)>,
 }
 
@@ -40,7 +42,7 @@ impl<'asm> Object<'asm> {
   pub fn new(name: &'asm (impl AsRef<Path> + ?Sized)) -> Self {
     Object {
       name: name.as_ref(),
-      blocks: HashMap::new(),
+      blocks: BTreeMap::new(),
       globals: Vec::new(),
     }
   }
@@ -97,5 +99,132 @@ impl<'asm> Object<'asm> {
   #[inline]
   pub fn dump(&self, w: impl io::Write) -> io::Result<()> {
     dump::dump(self, w)
+  }
+
+  /// Creates a new object by reading `rom` using the instructions in `debug`.
+  pub fn from_debug_info(
+    rom: &dyn Rom,
+    debug: &'asm dbg::File,
+  ) -> Object<'asm> {
+    let mut object = Object::new(&debug.name);
+    for region in &debug.blocks {
+      let block = object.new_block(region.start);
+      for offset in &region.offsets {
+        let bytes = block.zeroed_offset(offset.ty, offset.len);
+        rom
+          .read(region.start.offset(offset.start as i16), bytes)
+          .expect("this error should be handled gracefully");
+      }
+    }
+    object
+  }
+
+  /// Simplifies debug information, ensuring that it is minimal and internally
+  /// consistent.
+  ///
+  /// This function may be expensive to call, since it sorts and copies internal
+  /// buffers.
+  pub fn simplify_debug_info(&mut self) {
+    for (_, block) in &mut self.blocks {
+      // Ensure that the label table's is_global markers match those of the
+      // overall object.
+      let mut global_set = HashSet::new();
+      for (global, _) in &self.globals {
+        global_set.insert(global.name);
+      }
+      for (_, label) in &mut block.labels {
+        match label {
+          dbg::Label::Symbol(sym) => {
+            sym.is_global = global_set.contains(sym.name.as_str())
+          }
+          _ => {}
+        }
+      }
+
+      // Re-build the offset table, such that the following properties hold:
+      // - No two offsets overlap.
+      // - The offsets cover the entire span of self.data (filling in spaces
+      //   with data offsets).
+      // - No two adjecent offsets have the same type.
+      let offsets = &mut block.offsets;
+      offsets.sort_by_key(|offset| offset.start);
+
+      let mut new_offsets = Vec::new();
+      for i in 0..offsets.len() {
+        let mut offset = offsets[i];
+        if i == 0 {
+          if offset.start != 0 {
+            match offset.ty {
+              dbg::OffsetType::Code => new_offsets.push(dbg::Offset {
+                start: 0,
+                len: offset.start,
+                ty: dbg::OffsetType::Data,
+              }),
+              dbg::OffsetType::Data => offset.start = 0,
+            }
+          }
+
+          new_offsets.push(offset);
+          continue;
+        }
+
+        let prev = new_offsets.last_mut().unwrap();
+        let prev_end = prev.start + prev.len;
+        // Fix a pair of overlapping offsets by shortening the previous one.
+        if prev.start + prev.len > offset.start {
+          prev.len = prev_end - offset.start;
+        }
+        let prev_end = prev.start + prev.len;
+
+        match (prev.ty, offset.ty) {
+          (dbg::OffsetType::Code, dbg::OffsetType::Code)
+            if prev_end == offset.start =>
+          {
+            prev.len += offset.len
+          }
+          (dbg::OffsetType::Code, dbg::OffsetType::Code) => {
+            new_offsets.push(dbg::Offset {
+              start: prev_end,
+              len: offset.start - prev_end,
+              ty: dbg::OffsetType::Data,
+            });
+            new_offsets.push(offset);
+          }
+          (dbg::OffsetType::Data, dbg::OffsetType::Data) => {
+            prev.len += offset.len
+          }
+          (dbg::OffsetType::Data, _) => {
+            prev.len = offset.start - prev_end;
+            new_offsets.push(offset);
+          }
+          (_, dbg::OffsetType::Data) => {
+            offset.start = prev_end;
+            new_offsets.push(offset);
+          }
+        }
+      }
+      block.offsets = new_offsets;
+    }
+  }
+
+  /// Copies debug information out of this object into a serializeable format.
+  pub fn make_debug_info(&self) -> dbg::File {
+    let mut file = dbg::File {
+      name: self.file_name().into(),
+      blocks: Vec::new(),
+    };
+
+    for (_, block) in self.blocks() {
+      let block = dbg::Block {
+        start: block.start(),
+        len: block.len(),
+        offsets: block.offsets().cloned().collect(),
+        labels: BTreeMap::new(),
+      };
+
+      file.blocks.push(block);
+    }
+
+    file
   }
 }

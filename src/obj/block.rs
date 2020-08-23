@@ -11,8 +11,7 @@ use std::ops::RangeTo;
 use std::ops::RangeToInclusive;
 
 use crate::int::u24;
-use crate::obj::dbg::Offset;
-use crate::obj::dbg::OffsetType;
+use crate::obj::dbg;
 use crate::obj::Relocation;
 
 /// A block of assembled data.
@@ -26,7 +25,8 @@ use crate::obj::Relocation;
 pub struct Block<'asm> {
   start: u24,
   data: Vec<u8>,
-  offsets: Vec<Offset>,
+  pub(in crate::obj) labels: Vec<(u16, dbg::Label)>,
+  pub(in crate::obj) offsets: Vec<dbg::Offset>,
   relocations: Vec<Relocation<'asm>>,
 }
 
@@ -36,9 +36,15 @@ impl<'asm> Block<'asm> {
     Block {
       start,
       data: Vec::new(),
+      labels: Vec::new(),
       offsets: Vec::new(),
       relocations: Vec::new(),
     }
+  }
+
+  /// Returns the starting address of this block.
+  pub fn start(&self) -> u24 {
+    self.start
   }
 
   /// Returns this block's length, which always fits in 16 bits.
@@ -53,7 +59,7 @@ impl<'asm> Block<'asm> {
   /// Returning a sink to write data to.
   pub fn begin_offset<'a>(
     &'a mut self,
-    ty: OffsetType,
+    ty: dbg::OffsetType,
   ) -> OffsetWriter<'a, 'asm> {
     let len = self.len();
     OffsetWriter {
@@ -66,11 +72,11 @@ impl<'asm> Block<'asm> {
   /// Creates a new `Offset` filled with zeroes.
   ///
   /// Returns the zeroed offset.
-  pub fn zeroed_offset(&mut self, ty: OffsetType, len: u16) -> &mut [u8] {
+  pub fn zeroed_offset(&mut self, ty: dbg::OffsetType, len: u16) -> &mut [u8] {
     let old_len = self.len();
     let new_len = old_len + len;
 
-    self.offsets.push(Offset {
+    self.offsets.push(dbg::Offset {
       start: old_len,
       len,
       ty,
@@ -80,8 +86,24 @@ impl<'asm> Block<'asm> {
   }
 
   /// Returns an iterator over all `Offset`s for this block.
-  pub fn offsets(&self) -> impl Iterator<Item = &Offset> {
+  pub fn offsets(&self) -> impl Iterator<Item = &dbg::Offset> {
     self.offsets.iter()
+  }
+
+  /// Adds a new `Label` to this block, at the location where more data would
+  /// be written.
+  pub fn add_label(&mut self, label: dbg::Label) {
+    self.add_label_at(label, self.len())
+  }
+
+  /// Adds a new `Label` at the given location to this `Block`.
+  pub fn add_label_at(&mut self, label: dbg::Label, offset: u16) {
+    self.labels.push((offset, label))
+  }
+
+  /// Returns an iterator over all `Label`s for this block.
+  pub fn labels(&self) -> impl Iterator<Item = &(u16, dbg::Label)> {
+    self.labels.iter()
   }
 
   /// Adds a new relocation to this block.
@@ -102,7 +124,7 @@ where
 {
   block: &'a mut Block<'asm>,
   start: u16,
-  ty: OffsetType,
+  ty: dbg::OffsetType,
 }
 
 impl io::Write for OffsetWriter<'_, '_> {
@@ -128,7 +150,7 @@ impl io::Write for OffsetWriter<'_, '_> {
 
 impl Drop for OffsetWriter<'_, '_> {
   fn drop(&mut self) {
-    let offset = Offset {
+    let offset = dbg::Offset {
       start: self.start,
       len: self.block.len() - self.start,
       ty: self.ty,

@@ -13,10 +13,10 @@ use std::process::exit;
 use structopt::StructOpt;
 
 use snasm::asm;
-use snasm::dis;
 use snasm::error::Errors;
 use snasm::link;
-use snasm::obj::dbg::Metadata;
+use snasm::obj::dbg;
+use snasm::obj::Object;
 use snasm::rom::LoRom;
 use snasm::syn::src::Source;
 
@@ -64,6 +64,10 @@ pub enum Command {
     )]
     output: PathBuf,
 
+    /// File to output object metadata to.
+    #[structopt(short = "m", long, parse(from_os_str))]
+    metadata: Option<PathBuf>,
+
     /// Skips linking and instead prints a textual representation of the
     /// assembled object files.
     #[structopt(long)]
@@ -88,6 +92,11 @@ pub enum Command {
     /// The metadata describing how to disassemble the ROM.
     #[structopt(short = "m", long, parse(from_os_str))]
     metadata: PathBuf,
+
+    /// Skips removing 8K of zeroes at the start of the ROM, if they are
+    /// present.
+    #[structopt(long)]
+    preserve_smc_header: bool,
   },
 }
 
@@ -119,6 +128,17 @@ fn read_or_die(path: &Path) -> Vec<u8> {
       exit(exit_code::IO_ERROR)
     }
   }
+}
+
+fn write_json_or_die<T: serde::Serialize>(path: &Path, val: &T) {
+  let text = match json5::to_string(val) {
+    Ok(text) => text,
+    Err(e) => {
+      eprintln!("could not serialize {}: {}", path.display(), e);
+      exit(exit_code::IO_ERROR)
+    }
+  };
+  write_or_die(path, text.as_bytes());
 }
 
 fn write_or_die(path: &Path, data: &[u8]) {
@@ -174,6 +194,7 @@ fn main() {
 
     Command::As {
       output,
+      metadata,
       dump_objects,
       dump_binary,
       files,
@@ -230,14 +251,30 @@ fn main() {
         rom.dump(std::io::stdout()).unwrap();
       }
 
+      if let Some(meta_path) = metadata {
+        let metadata = dbg::Metadata {
+          files: objects
+            .iter_mut()
+            .map(|o| {
+              o.simplify_debug_info();
+              o.make_debug_info()
+            })
+            .collect(),
+        };
+        write_json_or_die(&meta_path, &metadata)
+      }
       write_or_die(&output, &mut rom.into_bytes());
     }
 
-    Command::Dis { input, metadata } => {
+    Command::Dis {
+      input,
+      metadata,
+      preserve_smc_header,
+    } => {
       let mut rom_bytes = read_or_die(&input);
       // If first 0x200 bytes are mostly zero, it's a dumb header we should rip
       // out.
-      if rom_bytes.len() >= 0x200 {
+      if !preserve_smc_header && rom_bytes.len() >= 0x200 {
         let zeroes = (0..0x200)
           .into_iter()
           .filter(|&i| rom_bytes[i] == 0)
@@ -252,10 +289,10 @@ fn main() {
 
       let rom = LoRom::from_bytes(rom_bytes);
 
-      let metadata = read_json_or_die::<Metadata>(&metadata);
-      let objects = dis::disassemble(&rom, &metadata);
+      let metadata = read_json_or_die::<dbg::Metadata>(&metadata);
+      for file in &metadata.files {
+        let object = Object::from_debug_info(&rom, file);
 
-      for object in objects {
         println!("; {}", object.file_name().display());
         object.dump(std::io::stdout()).unwrap();
       }

@@ -208,17 +208,7 @@ impl Not for Int {
 
 /// A 24-bit 64816 address.
 #[allow(non_camel_case_types)]
-#[derive(
-  Copy,
-  Clone,
-  PartialEq,
-  Eq,
-  PartialOrd,
-  Ord,
-  Hash,
-  Debug,
-  Default,
-)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub struct u24 {
   /// The "bank byte", that is, the top byte of the address determining which
   /// bank it corresponds to.
@@ -345,12 +335,15 @@ impl AddAssign<u16> for u24 {
 
 impl<'de> Deserialize<'de> for u24 {
   fn deserialize<D>(de: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>
+  where
+    D: Deserializer<'de>,
   {
     let int = u64::deserialize(de)?;
     if int > 0xffffff {
-      return Err(serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(int), &"24-bit integer"));
+      return Err(serde::de::Error::invalid_value(
+        serde::de::Unexpected::Unsigned(int),
+        &"24-bit integer",
+      ));
     }
     Ok(u24::from_u32(int as u32))
   }
@@ -358,8 +351,8 @@ impl<'de> Deserialize<'de> for u24 {
 
 impl Serialize for u24 {
   fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer 
+  where
+    S: Serializer,
   {
     self.to_u32().serialize(ser)
   }
