@@ -13,6 +13,7 @@ use std::process::exit;
 use structopt::StructOpt;
 
 use snasm::asm;
+use snasm::dis;
 use snasm::error::Errors;
 use snasm::link;
 use snasm::obj::dbg;
@@ -93,10 +94,19 @@ pub enum Command {
     #[structopt(short = "m", long, parse(from_os_str))]
     metadata: PathBuf,
 
+    /// The directory to output disassembled files to.
+    #[structopt(short = "o", long, default_value = ".", parse(from_os_str))]
+    output_dir: PathBuf,
+
     /// Skips removing 8K of zeroes at the start of the ROM, if they are
     /// present.
     #[structopt(long)]
     preserve_smc_header: bool,
+
+    /// Skips disassembly and instead prints a textual representation of the
+    /// recovered object files.
+    #[structopt(long)]
+    dump_objects: bool,
   },
 }
 
@@ -144,6 +154,20 @@ fn write_json_or_die<T: serde::Serialize>(path: &Path, val: &T) {
 fn write_or_die(path: &Path, data: &[u8]) {
   if let Err(e) = fs::write(path, data) {
     eprintln!("could not write {}: {}", path.display(), e);
+    exit(exit_code::IO_ERROR)
+  }
+}
+
+fn ensure_dir_or_die(path: &Path) {
+  if !path.exists() {
+    if let Err(e) = fs::create_dir_all(path) {
+      eprintln!("could not mkdir {}: {}", path.display(), e);
+      exit(exit_code::IO_ERROR)
+    }
+  }
+
+  if !path.is_dir() {
+    eprintln!("expected directory, got {}", path.display());
     exit(exit_code::IO_ERROR)
   }
 }
@@ -233,7 +257,7 @@ fn main() {
 
       if dump_objects {
         for object in objects {
-          println!("; {}", object.file_name().display());
+          println!("; {}.o", object.file_name().display());
           object.dump(std::io::stdout()).unwrap();
         }
         return;
@@ -269,7 +293,9 @@ fn main() {
     Command::Dis {
       input,
       metadata,
+      output_dir,
       preserve_smc_header,
+      dump_objects,
     } => {
       let mut rom_bytes = read_or_die(&input);
       // If first 0x200 bytes are mostly zero, it's a dumb header we should rip
@@ -290,11 +316,31 @@ fn main() {
       let rom = LoRom::from_bytes(rom_bytes);
 
       let metadata = read_json_or_die::<dbg::Metadata>(&metadata);
-      for file in &metadata.files {
-        let object = Object::from_debug_info(&rom, file);
 
-        println!("; {}", object.file_name().display());
-        object.dump(std::io::stdout()).unwrap();
+      let mut objects = Vec::new();
+      for file in &metadata.files {
+        objects.push(Object::from_debug_info(&rom, file));
+      }
+
+      if dump_objects {
+        for object in objects {
+          println!("; {}.o", object.file_name().display());
+          object.dump(std::io::stdout()).unwrap();
+        }
+        return;
+      }
+
+      let mut sources = Vec::new();
+      for object in &objects {
+        sources.push(dis::disassemble(object));
+      }
+
+      ensure_dir_or_die(&output_dir);
+      for source in sources {
+        let path = output_dir.join(source.file_name());
+        ensure_dir_or_die(path.parent().unwrap());
+        let text = format!("{}", source);
+        write_or_die(&path, text.as_bytes());
       }
     }
   }

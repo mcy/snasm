@@ -121,7 +121,10 @@ impl<'asm> Object<'asm> {
       for (offset, labels) in &dbg_block.labels {
         for label in labels {
           if let dbg::Label::Symbol(sym) = label {
-            globals.push((Symbol { name: &sym.name }, block.start().offset(*offset as i16)));
+            globals.push((
+              Symbol { name: &sym.name },
+              block.start().offset(*offset as i16),
+            ));
           }
         }
       }

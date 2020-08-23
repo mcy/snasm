@@ -53,6 +53,29 @@ impl fmt::Display for Symbol<'_> {
   }
 }
 
+impl<'asm> From<&'asm str> for Symbol<'asm> {
+  #[inline]
+  fn from(name: &'asm str) -> Self {
+    Symbol { name }
+  }
+}
+
+impl<'asm> From<&'asm String> for Symbol<'asm> {
+  #[inline]
+  fn from(name: &'asm String) -> Self {
+    Symbol {
+      name: name.as_str(),
+    }
+  }
+}
+
+impl<'asm> From<&'asm crate::obj::dbg::Symbol> for Symbol<'asm> {
+  #[inline]
+  fn from(sym: &'asm crate::obj::dbg::Symbol) -> Self {
+    Symbol { name: &sym.name }
+  }
+}
+
 /// A local label reference, e.g., `1f`.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum LocalLabel {

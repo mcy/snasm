@@ -104,12 +104,20 @@ impl<'asm> Block<'asm> {
 
   /// Returns an iterator over all `Labels` at the given block offset.
   pub fn labels_at(&self, offset: u16) -> impl Iterator<Item = &dbg::Label> {
-    self.labels.get(&offset).map(Vec::as_slice).unwrap_or(&[][..]).iter()
+    self
+      .labels
+      .get(&offset)
+      .map(Vec::as_slice)
+      .unwrap_or(&[][..])
+      .iter()
   }
 
   /// Returns an iterator over all `Label`s for this block.
   pub fn labels(&self) -> impl Iterator<Item = (u16, &dbg::Label)> {
-    self.labels.iter().flat_map(|(k, v)| v.iter().map(move |v| (*k, v)))
+    self
+      .labels
+      .iter()
+      .flat_map(|(k, v)| v.iter().map(move |v| (*k, v)))
   }
 
   /// Adds a new relocation to this block.

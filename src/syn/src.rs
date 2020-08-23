@@ -65,6 +65,14 @@ impl Format for Source<'_> {
 impl_display!(Source<'_>);
 
 impl<'asm> Source<'asm> {
+  /// Creates a new empty source file.
+  pub fn empty(name: &'asm (impl AsRef<Path> + ?Sized)) -> Self {
+    Self {
+      name: name.as_ref(),
+      atoms: Vec::new(),
+    }
+  }
+
   /// Parses a source file out of `text`, giving it the given `name`.
   pub fn parse(
     name: &'asm (impl AsRef<Path> + ?Sized),
@@ -81,6 +89,11 @@ impl<'asm> Source<'asm> {
   /// Returns an iterator over the atoms in this fource file.
   pub fn iter(&self) -> impl Iterator<Item = &Atom<'asm>> {
     self.atoms.iter()
+  }
+
+  /// Adds a new atom to this source file.
+  pub fn add_atom(&mut self, atom: Atom<'asm>) {
+    self.atoms.push(atom)
   }
 }
 
