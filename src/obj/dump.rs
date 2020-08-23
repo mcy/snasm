@@ -13,16 +13,13 @@ pub fn dump(obj: &Object, mut w: impl io::Write) -> io::Result<()> {
   for (name, addr) in obj.globals() {
     writeln!(w, ".global {}, 0x{:06x}", name, addr)?;
   }
-  let mut blocks = obj.blocks().collect::<Vec<_>>();
-  blocks.sort_by_key(|&(start, _)| start);
 
-  for (addr, block) in blocks {
+  for (addr, block) in obj.blocks() {
     if block.len() == 0 {
       continue;
     }
     writeln!(w, ".origin 0x{:06x}", addr)?;
 
-    let labels = crate::obj::make_multimap(block.labels());
     for offset in block.offsets() {
       let start = offset.start;
       let end = start + offset.len;
@@ -33,12 +30,10 @@ pub fn dump(obj: &Object, mut w: impl io::Write) -> io::Result<()> {
           for instruction in Instruction::stream(&block[start..end]) {
             let instruction = instruction?;
             let block_offset = (addr - block.start().to_u32()) as u16;
-            if let Some(labels) = labels.get(&block_offset) {
-              for label in labels {
-                match label {
-                  dbg::Label::Symbol(sym) => writeln!(w, "{}:", sym.name)?,
-                  dbg::Label::Local(digit) => writeln!(w, "{}:", digit)?,
-                }
+            for label in block.labels_at(block_offset) {
+              match label {
+                dbg::Label::Symbol(sym) => writeln!(w, "{}:", sym.name)?,
+                dbg::Label::Local(digit) => writeln!(w, "{}:", digit)?,
               }
             }
 
@@ -66,18 +61,16 @@ pub fn dump(obj: &Object, mut w: impl io::Write) -> io::Result<()> {
           let mut bytes_since_newline = 0usize;
           for (n, j) in (start..end).into_iter().enumerate() {
             let mut has_label = false;
-            if let Some(labels) = labels.get(&j) {
+            for label in block.labels_at(j) {
               if bytes_since_newline != 0 {
                 writeln!(w, "")?;
               }
-              for label in labels {
-                match label {
-                  dbg::Label::Symbol(sym) => writeln!(w, "{}:", sym.name)?,
-                  dbg::Label::Local(digit) => writeln!(w, "{}:", digit)?,
-                }
-              }
               has_label = true;
               bytes_since_newline = 0;
+              match label {
+                dbg::Label::Symbol(sym) => writeln!(w, "{}:", sym.name)?,
+                dbg::Label::Local(digit) => writeln!(w, "{}:", digit)?,
+              }
             }
 
             if bytes_since_newline % 8 == 0 {

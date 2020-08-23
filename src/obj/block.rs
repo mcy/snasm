@@ -1,5 +1,6 @@
 //! Blocks of data within an object file.
 
+use std::collections::BTreeMap;
 use std::io;
 use std::ops::Index;
 use std::ops::IndexMut;
@@ -25,7 +26,7 @@ use crate::obj::Relocation;
 pub struct Block<'asm> {
   start: u24,
   data: Vec<u8>,
-  pub(in crate::obj) labels: Vec<(u16, dbg::Label)>,
+  pub(in crate::obj) labels: BTreeMap<u16, Vec<dbg::Label>>,
   pub(in crate::obj) offsets: Vec<dbg::Offset>,
   relocations: Vec<Relocation<'asm>>,
 }
@@ -36,7 +37,7 @@ impl<'asm> Block<'asm> {
     Block {
       start,
       data: Vec::new(),
-      labels: Vec::new(),
+      labels: BTreeMap::new(),
       offsets: Vec::new(),
       relocations: Vec::new(),
     }
@@ -96,14 +97,19 @@ impl<'asm> Block<'asm> {
     self.add_label_at(label, self.len())
   }
 
-  /// Adds a new `Label` at the given location to this `Block`.
+  /// Adds a new `Label` at the given location to this block.
   pub fn add_label_at(&mut self, label: dbg::Label, offset: u16) {
-    self.labels.push((offset, label))
+    self.labels.entry(offset).or_insert(Vec::new()).push(label)
+  }
+
+  /// Returns an iterator over all `Labels` at the given block offset.
+  pub fn labels_at(&self, offset: u16) -> impl Iterator<Item = &dbg::Label> {
+    self.labels.get(&offset).map(Vec::as_slice).unwrap_or(&[][..]).iter()
   }
 
   /// Returns an iterator over all `Label`s for this block.
-  pub fn labels(&self) -> impl Iterator<Item = &(u16, dbg::Label)> {
-    self.labels.iter()
+  pub fn labels(&self) -> impl Iterator<Item = (u16, &dbg::Label)> {
+    self.labels.iter().flat_map(|(k, v)| v.iter().map(move |v| (*k, v)))
   }
 
   /// Adds a new relocation to this block.
