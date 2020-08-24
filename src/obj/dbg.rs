@@ -57,6 +57,8 @@ pub enum Attr {
   Label(Label),
   /// An external symbol, mirroring an `.extern` declaration.
   Extern(Symbol, Option<u8>),
+  /// A change in the bank state, as by the `.bank` directive.
+  Bank(BankState),
 }
 
 /// A program label within a [`Block`].
@@ -84,6 +86,17 @@ pub struct Symbol {
 
 fn is_false(b: &bool) -> bool {
   *b == false
+}
+
+/// A potential state the data bank might be in.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum BankState {
+  /// The DBR tracks the PC; this is the default.
+  Pc,
+  /// The DBR is somewhere "unspecified".
+  Else,
+  /// The DBR is at some fixed bank.
+  Fixed(u8),
 }
 
 /// An "offset" within a [`Block`], describing whether it contains code or some

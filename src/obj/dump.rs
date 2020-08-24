@@ -97,12 +97,21 @@ pub fn dump(obj: &Object, mut w: impl io::Write) -> io::Result<()> {
       }
     }
 
-    for (_, attr) in block.attrs() {
+    for (offset, attr) in block.attrs() {
       match attr {
         dbg::Attr::Label(_) => { /* Handled below */ }
         dbg::Attr::Extern(sym, None) => writeln!(w, ".extern {}", sym.name)?,
         dbg::Attr::Extern(sym, Some(bank)) => {
           writeln!(w, ".extern {}, 0x{:02x}", sym.name, bank)?
+        }
+        dbg::Attr::Bank(dbg::BankState::Pc) => {
+          writeln!(w, ".bank 0x{:04x}, pc", offset)?
+        }
+        dbg::Attr::Bank(dbg::BankState::Else) => {
+          writeln!(w, ".bank 0x{:04x}, else", offset)?
+        }
+        dbg::Attr::Bank(dbg::BankState::Fixed(bank)) => {
+          writeln!(w, ".bank 0x{:04x}, 0x{:02x}", offset, bank)?
         }
       }
     }

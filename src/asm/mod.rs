@@ -380,7 +380,19 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
 
               self.object.define_global(sym, addr);
             }
-            DirectiveType::Bank(dbr_state) => self.dbr_state = dbr_state,
+            DirectiveType::Bank(dbr_state) => {
+              let dbg_dbr = match dbr_state {
+                DbrState::Pc => dbg::BankState::Pc,
+                DbrState::Else => dbg::BankState::Else,
+                DbrState::Fixed(bank) => dbg::BankState::Fixed(bank),
+              };
+              self
+                .object
+                .get_block_mut(block_start)
+                .unwrap()
+                .add_attr(dbg::Attr::Bank(dbg_dbr));
+              self.dbr_state = dbr_state
+            }
             DirectiveType::Data { count, values } => {
               if count == 0 {
                 continue;

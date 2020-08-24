@@ -179,5 +179,37 @@ fn process_attr<'asm>(src: &mut Source<'asm>, attr: &'asm dbg::Attr) {
       has_newline: true,
       span: None,
     }),
+
+    dbg::Attr::Bank(dbg::BankState::Pc) => src.add_atom(Atom {
+      inner: AtomType::Directive(Directive {
+        sym: ".bank".into(),
+        args: vec![Operand::Symbol("auto".into())],
+      }),
+      comment: None,
+      has_newline: true,
+      span: None,
+    }),
+    dbg::Attr::Bank(dbg::BankState::Else) => src.add_atom(Atom {
+      inner: AtomType::Directive(Directive {
+        sym: ".bank".into(),
+        args: vec![Operand::Symbol("no_assume".into())],
+      }),
+      comment: None,
+      has_newline: true,
+      span: None,
+    }),
+    dbg::Attr::Bank(dbg::BankState::Fixed(bank)) => src.add_atom(Atom {
+      inner: AtomType::Directive(Directive {
+        sym: ".bank".into(),
+        args: vec![Operand::Int(IntLit {
+          value: (*bank).into(),
+          unary: None,
+          style: DigitStyle::Hex(PrefixStyle::Classic),
+        })],
+      }),
+      comment: None,
+      has_newline: true,
+      span: None,
+    }),
   }
 }
