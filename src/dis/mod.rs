@@ -45,35 +45,7 @@ pub fn disassemble<'asm>(obj: &'asm Object<'asm>) -> Source<'asm> {
           for instruction in Instruction::stream(bytes) {
             let instruction = instruction.unwrap();
             for attr in block.attrs_at(block_offset) {
-              let atom = match attr {
-                dbg::Attr::Label(dbg::Label::Symbol(sym)) => {
-                  AtomType::Label(sym.into())
-                }
-                dbg::Attr::Label(dbg::Label::Local(digit)) => {
-                  AtomType::LocalLabel(Digit::new(*digit).unwrap())
-                }
-              };
-              src.add_atom(Atom {
-                inner: atom,
-                comment: None,
-                has_newline: true,
-                span: None,
-              });
-              if let dbg::Attr::Label(dbg::Label::Symbol(dbg::Symbol {
-                name,
-                is_global: true,
-              })) = attr
-              {
-                src.add_atom(Atom {
-                  inner: AtomType::Directive(Directive {
-                    sym: ".global".into(),
-                    args: vec![Operand::Symbol(name.into())],
-                  }),
-                  comment: None,
-                  has_newline: true,
-                  span: None,
-                });
-              }
+              process_attr(&mut src, attr);
             }
 
             let code = Code {
@@ -120,35 +92,7 @@ pub fn disassemble<'asm>(obj: &'asm Object<'asm>) -> Source<'asm> {
                 });
               }
 
-              let atom = match attr {
-                dbg::Attr::Label(dbg::Label::Symbol(sym)) => {
-                  AtomType::Label(sym.into())
-                }
-                dbg::Attr::Label(dbg::Label::Local(digit)) => {
-                  AtomType::LocalLabel(Digit::new(*digit).unwrap())
-                }
-              };
-              src.add_atom(Atom {
-                inner: atom,
-                comment: None,
-                has_newline: true,
-                span: None,
-              });
-              if let dbg::Attr::Label(dbg::Label::Symbol(dbg::Symbol {
-                name,
-                is_global: true,
-              })) = attr
-              {
-                src.add_atom(Atom {
-                  inner: AtomType::Directive(Directive {
-                    sym: ".global".into(),
-                    args: vec![Operand::Symbol(name.into())],
-                  }),
-                  comment: None,
-                  has_newline: true,
-                  span: None,
-                });
-              }
+              process_attr(&mut src, attr);
             }
 
             byte_literals.push(Operand::Int(IntLit {
@@ -187,4 +131,53 @@ pub fn disassemble<'asm>(obj: &'asm Object<'asm>) -> Source<'asm> {
   }
 
   src
+}
+
+fn process_attr<'asm>(src: &mut Source<'asm>, attr: &'asm dbg::Attr) {
+  match attr {
+    dbg::Attr::Label(dbg::Label::Symbol(sym)) => {
+      src.add_atom(Atom {
+        inner: AtomType::Label(sym.into()),
+        comment: None,
+        has_newline: true,
+        span: None,
+      });
+      if sym.is_global {
+        src.add_atom(Atom {
+          inner: AtomType::Directive(Directive {
+            sym: ".global".into(),
+            args: vec![Operand::Symbol(sym.into())],
+          }),
+          comment: None,
+          has_newline: true,
+          span: None,
+        });
+      }
+    }
+    dbg::Attr::Label(dbg::Label::Local(digit)) => src.add_atom(Atom {
+      inner: AtomType::LocalLabel(Digit::new(*digit).unwrap()),
+      comment: None,
+      has_newline: true,
+      span: None,
+    }),
+    dbg::Attr::Extern(sym, bank) => src.add_atom(Atom {
+      inner: AtomType::Directive(Directive {
+        sym: ".extern".into(),
+        args: match bank {
+          Some(bank) => vec![
+            Operand::Symbol(sym.into()),
+            Operand::Int(IntLit {
+              value: (*bank).into(),
+              unary: None,
+              style: DigitStyle::Hex(PrefixStyle::Classic),
+            }),
+          ],
+          None => vec![Operand::Symbol(sym.into())],
+        },
+      }),
+      comment: None,
+      has_newline: true,
+      span: None,
+    }),
+  }
 }

@@ -38,6 +38,7 @@ pub fn dump(obj: &Object, mut w: impl io::Write) -> io::Result<()> {
                 dbg::Attr::Label(dbg::Label::Local(digit)) => {
                   writeln!(w, "{}:", digit)?
                 }
+                _ => {}
               }
             }
 
@@ -78,6 +79,7 @@ pub fn dump(obj: &Object, mut w: impl io::Write) -> io::Result<()> {
                 dbg::Attr::Label(dbg::Label::Local(digit)) => {
                   writeln!(w, "{}:", digit)?
                 }
+                _ => {}
               }
             }
 
@@ -91,6 +93,16 @@ pub fn dump(obj: &Object, mut w: impl io::Write) -> io::Result<()> {
             bytes_since_newline += 1;
           }
           writeln!(w, "")?;
+        }
+      }
+    }
+
+    for (_, attr) in block.attrs() {
+      match attr {
+        dbg::Attr::Label(_) => { /* Handled below */ }
+        dbg::Attr::Extern(sym, None) => writeln!(w, ".extern {}", sym.name)?,
+        dbg::Attr::Extern(sym, Some(bank)) => {
+          writeln!(w, ".extern {}, 0x{:02x}", sym.name, bank)?
         }
       }
     }

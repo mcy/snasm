@@ -55,6 +55,8 @@ pub struct Block {
 pub enum Attr {
   /// A label-like attribute.
   Label(Label),
+  /// An external symbol, mirroring an `.extern` declaration.
+  Extern(Symbol, Option<u8>),
 }
 
 /// A program label within a [`Block`].

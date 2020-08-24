@@ -343,7 +343,17 @@ impl<'atom, 'asm: 'atom> Assembler<'atom, 'asm> {
               block_start = self.pc;
               self.object.new_block(block_start);
             }
-            DirectiveType::Extern { .. } => {}
+            DirectiveType::Extern { sym, bank } => {
+              self.object.get_block_mut(block_start).unwrap().add_attr(
+                dbg::Attr::Extern(
+                  dbg::Symbol {
+                    name: sym.name.into(),
+                    is_global: false, // Doesn't matter for externs.
+                  },
+                  bank,
+                ),
+              );
+            }
             DirectiveType::Global(sym) => {
               let &mut (_, val) = match self.symbols.lookup(sym) {
                 Some(val) => val,
