@@ -42,11 +42,19 @@ pub struct Block {
   #[serde(default)]
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub offsets: Vec<Offset>,
-  /// Labels defined within this block.
+  /// Attributes defined within this block.
   #[serde(default)]
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(with = "kv_pairs")]
-  pub labels: BTreeMap<u16, Vec<Label>>,
+  pub attrs: BTreeMap<u16, Vec<Attr>>,
+}
+
+/// A non-specific program attribute occuring at a particular offset within a
+/// block.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum Attr {
+  /// A label-like attribute.
+  Label(Label),
 }
 
 /// A program label within a [`Block`].

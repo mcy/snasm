@@ -44,10 +44,12 @@ pub fn disassemble<'asm>(obj: &'asm Object<'asm>) -> Source<'asm> {
           let mut block_offset = offset.start;
           for instruction in Instruction::stream(bytes) {
             let instruction = instruction.unwrap();
-            for label in block.labels_at(block_offset) {
-              let atom = match label {
-                dbg::Label::Symbol(sym) => AtomType::Label(sym.into()),
-                dbg::Label::Local(digit) => {
+            for attr in block.attrs_at(block_offset) {
+              let atom = match attr {
+                dbg::Attr::Label(dbg::Label::Symbol(sym)) => {
+                  AtomType::Label(sym.into())
+                }
+                dbg::Attr::Label(dbg::Label::Local(digit)) => {
                   AtomType::LocalLabel(Digit::new(*digit).unwrap())
                 }
               };
@@ -57,10 +59,10 @@ pub fn disassemble<'asm>(obj: &'asm Object<'asm>) -> Source<'asm> {
                 has_newline: true,
                 span: None,
               });
-              if let dbg::Label::Symbol(dbg::Symbol {
+              if let dbg::Attr::Label(dbg::Label::Symbol(dbg::Symbol {
                 name,
                 is_global: true,
-              }) = label
+              })) = attr
               {
                 src.add_atom(Atom {
                   inner: AtomType::Directive(Directive {
@@ -105,7 +107,7 @@ pub fn disassemble<'asm>(obj: &'asm Object<'asm>) -> Source<'asm> {
           for (idx, byte) in bytes.iter().cloned().enumerate() {
             let block_offset = offset.start + idx as u16;
 
-            for label in block.labels_at(block_offset) {
+            for attr in block.attrs_at(block_offset) {
               if !byte_literals.is_empty() {
                 src.add_atom(Atom {
                   inner: AtomType::Directive(Directive {
@@ -118,9 +120,11 @@ pub fn disassemble<'asm>(obj: &'asm Object<'asm>) -> Source<'asm> {
                 });
               }
 
-              let atom = match label {
-                dbg::Label::Symbol(sym) => AtomType::Label(sym.into()),
-                dbg::Label::Local(digit) => {
+              let atom = match attr {
+                dbg::Attr::Label(dbg::Label::Symbol(sym)) => {
+                  AtomType::Label(sym.into())
+                }
+                dbg::Attr::Label(dbg::Label::Local(digit)) => {
                   AtomType::LocalLabel(Digit::new(*digit).unwrap())
                 }
               };
@@ -130,10 +134,10 @@ pub fn disassemble<'asm>(obj: &'asm Object<'asm>) -> Source<'asm> {
                 has_newline: true,
                 span: None,
               });
-              if let dbg::Label::Symbol(dbg::Symbol {
+              if let dbg::Attr::Label(dbg::Label::Symbol(dbg::Symbol {
                 name,
                 is_global: true,
-              }) = label
+              })) = attr
               {
                 src.add_atom(Atom {
                   inner: AtomType::Directive(Directive {

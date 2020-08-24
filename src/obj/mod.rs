@@ -117,10 +117,10 @@ impl<'asm> Object<'asm> {
           .expect("this error should be handled gracefully");
       }
 
-      block.labels = dbg_block.labels.clone();
-      for (offset, labels) in &dbg_block.labels {
-        for label in labels {
-          if let dbg::Label::Symbol(sym) = label {
+      block.attrs = dbg_block.attrs.clone();
+      for (offset, attrs) in &dbg_block.attrs {
+        for attr in attrs {
+          if let dbg::Attr::Label(dbg::Label::Symbol(sym)) = attr {
             globals.push((
               Symbol { name: &sym.name },
               block.start().offset(*offset as i16),
@@ -147,9 +147,9 @@ impl<'asm> Object<'asm> {
       for (global, _) in &self.globals {
         global_set.insert(global.name);
       }
-      for (_, labels) in &mut block.labels {
-        for label in labels {
-          if let dbg::Label::Symbol(sym) = label {
+      for (_, attrs) in &mut block.attrs {
+        for attr in attrs {
+          if let dbg::Attr::Label(dbg::Label::Symbol(sym)) = attr {
             sym.is_global = global_set.contains(sym.name.as_str())
           }
         }
@@ -233,7 +233,7 @@ impl<'asm> Object<'asm> {
         start: block.start(),
         len: block.len(),
         offsets: block.offsets().cloned().collect(),
-        labels: block.labels.clone(),
+        attrs: block.attrs.clone(),
       };
 
       file.blocks.push(dbg_block);

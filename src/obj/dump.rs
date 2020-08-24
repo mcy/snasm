@@ -30,10 +30,14 @@ pub fn dump(obj: &Object, mut w: impl io::Write) -> io::Result<()> {
           for instruction in Instruction::stream(&block[start..end]) {
             let instruction = instruction?;
             let block_offset = (addr - block.start().to_u32()) as u16;
-            for label in block.labels_at(block_offset) {
-              match label {
-                dbg::Label::Symbol(sym) => writeln!(w, "{}:", sym.name)?,
-                dbg::Label::Local(digit) => writeln!(w, "{}:", digit)?,
+            for attr in block.attrs_at(block_offset) {
+              match attr {
+                dbg::Attr::Label(dbg::Label::Symbol(sym)) => {
+                  writeln!(w, "{}:", sym.name)?
+                }
+                dbg::Attr::Label(dbg::Label::Local(digit)) => {
+                  writeln!(w, "{}:", digit)?
+                }
               }
             }
 
@@ -61,15 +65,19 @@ pub fn dump(obj: &Object, mut w: impl io::Write) -> io::Result<()> {
           let mut bytes_since_newline = 0usize;
           for (n, j) in (start..end).into_iter().enumerate() {
             let mut has_label = false;
-            for label in block.labels_at(j) {
+            for attr in block.attrs_at(j) {
               if bytes_since_newline != 0 {
                 writeln!(w, "")?;
               }
               has_label = true;
               bytes_since_newline = 0;
-              match label {
-                dbg::Label::Symbol(sym) => writeln!(w, "{}:", sym.name)?,
-                dbg::Label::Local(digit) => writeln!(w, "{}:", digit)?,
+              match attr {
+                dbg::Attr::Label(dbg::Label::Symbol(sym)) => {
+                  writeln!(w, "{}:", sym.name)?
+                }
+                dbg::Attr::Label(dbg::Label::Local(digit)) => {
+                  writeln!(w, "{}:", digit)?
+                }
               }
             }
 
